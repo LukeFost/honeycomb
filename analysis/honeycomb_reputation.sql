@@ -8,9 +8,9 @@
 -- discount here.
 --
 -- Tables (`honeycomb.*`) are what BigQuery materializes from the escrow contract's
--- decoded logs — BountyPosted / SubmissionReceived / Settled — exactly the way
--- analysis/extract_raw.py decodes the ERC-8004 registries today. Until the contract
--- ships, the same star schema is seeded by analysis/honeycomb_{agents,bounties,
+-- decoded logs — BountyPosted / SubmissionReceived / Settled — decoded from mainnet logs
+-- the same way the ERC-8004 registries are (see apps/web/src/lib/bq.ts). Until the
+-- contract ships, the same star schema is seeded by analysis/honeycomb_{agents,bounties,
 -- submissions,settlements}.csv and scored identically in apps/web/src/lib/reputation.ts.
 --
 -- PROVENANCE of the grade fields — this is how we utilize the ERC-8004 VALIDATION address:

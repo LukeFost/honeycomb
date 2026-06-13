@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Chip, cn, truncAddr } from "./ui";
+import { Chip, truncAddr } from "./ui";
 
 type QueryDef = { key: string; title: string; sql: string };
 type Registry = { label: string; address: string };
@@ -21,13 +21,11 @@ type LiveResult = {
 
 export default function LiveQueryPanel({
   dataset,
-  start,
   queries,
   registries,
   validation,
 }: {
   dataset: string;
-  start: string;
   queries: QueryDef[];
   registries: Registry[];
   validation: { label: string; address: string; status: string; eventName: string; topic0: string };

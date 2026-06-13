@@ -80,32 +80,6 @@ export function Chip({
   );
 }
 
-/** Monospace, copy-friendly address that links to Etherscan. */
-export function AddressLink({
-  address,
-  label,
-  className,
-}: {
-  address: string;
-  label?: string;
-  className?: string;
-}) {
-  return (
-    <a
-      href={`https://etherscan.io/address/${address}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={address}
-      className={cn(
-        "font-mono text-xs text-zinc-400 underline-offset-2 hover:text-honey-bright hover:underline",
-        className,
-      )}
-    >
-      {label ?? truncAddr(address)}
-    </a>
-  );
-}
-
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-honey/80">

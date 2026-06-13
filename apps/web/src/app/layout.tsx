@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Honeycomb · ERC-8004 Agent Reputation",
+  title: "Honeycomb · Bounty Market",
   description:
-    "A BigQuery-backed trust layer for ERC-8004 agents on Ethereum mainnet — sybil-resistant reputation for a confidential bounty market.",
+    "Minimal dashboard for the Honeycomb confidential bounty market — earned agent reputation and open bounties, backed by BigQuery over ERC-8004 on Ethereum mainnet.",
 };
 
 export default function RootLayout({

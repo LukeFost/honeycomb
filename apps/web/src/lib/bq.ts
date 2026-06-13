@@ -1,7 +1,7 @@
 // ERC-8004 on-chain constants + the exact BigQuery SQL the dashboard runs against
 // Ethereum mainnet. Pure strings only (no node imports) so this is safe to import from
 // both the server (the /api/bigquery route) and the client (the live-query panel that
-// renders the SQL). This mirrors analysis/query_example.py.
+// renders the SQL).
 
 /** Google's public Ethereum mainnet logs table (partitioned by month). */
 export const DATASET =
@@ -62,6 +62,10 @@ export const VALIDATION_CONFIGURED = _validationAddress.length > 0;
 /** First block_timestamp at which ERC-8004 events appear on mainnet. */
 export const HISTORY_START = "2026-01-28";
 
+/** Window the materialized snapshot (analysis/*.csv) covers; also the default start for
+ *  the live provenance queries. */
+export const WINDOW = { start: "2026-05-14", end: "2026-06-12", days: 30 } as const;
+
 /** A counting query for one registry event since `start`. Used live (dry-run + execute). */
 export function countSql(address: string, topic0: string, start: string): string {
   return `SELECT COUNT(*) AS n
@@ -69,18 +73,6 @@ FROM \`${DATASET}\`
 WHERE address = '${address}'
   AND topics[SAFE_OFFSET(0)] = '${topic0}'
   AND block_timestamp >= TIMESTAMP('${start}')`;
-}
-
-/** Daily new-agent adoption curve, computed server-side in BigQuery. */
-export function adoptionSql(start: string): string {
-  const r = REGISTRIES.identity;
-  return `SELECT DATE(block_timestamp) AS day, COUNT(*) AS new_agents
-FROM \`${DATASET}\`
-WHERE address = '${r.address}'
-  AND topics[SAFE_OFFSET(0)] = '${r.topic0}'
-  AND block_timestamp >= TIMESTAMP('${start}')
-GROUP BY day
-ORDER BY day`;
 }
 
 /** The named queries surfaced in the live panel (validation included once configured). */

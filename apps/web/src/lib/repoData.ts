@@ -1,6 +1,6 @@
 // Shared server-side helpers for reading the repo's analysis/ snapshot CSVs. Used by both
 // snapshot.ts (ERC-8004 global data) and reputation.ts (Honeycomb Layer-2 seed). Walks up
-// from cwd to find analysis/, mirroring analysis/bqenv.py's repo-root discovery.
+// from cwd to find analysis/, the committed BigQuery snapshot the dashboard reads.
 import fs from "node:fs";
 import path from "node:path";
 import { parseCsv, type Row } from "./csv";

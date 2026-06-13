@@ -3,12 +3,10 @@
 import { num, bool } from "./csv";
 import { analysisDir, readCsv } from "./repoData";
 
-// Loads the materialized BigQuery snapshot (the analysis/ CSVs) into typed objects the
-// dashboard renders. The CSVs ARE the output of the BigQuery pipeline (see analysis/);
-// reading the snapshot keeps page loads instant and free, while /api/bigquery proves the
-// same queries run live against Ethereum mainnet on demand.
-
-export type AdoptionPoint = { day: string; newAgents: number; cumulative: number };
+// Loads the materialized ERC-8004 trust snapshot (analysis/erc8004_trust.csv): the dashboard's
+// Directory renders these agents, and Layer-2 reputation (reputation.ts) uses each agent's
+// trust score as a cold-start prior. The CSV is the frozen output of the BigQuery pipeline
+// (see analysis/); /api/bigquery proves the same queries run live against mainnet on demand.
 
 export type TrustCategory = "organic" | "thin" | "sybil";
 
@@ -29,29 +27,9 @@ export type TrustAgent = {
   category: TrustCategory;
 };
 
-export type Kpis = {
-  registered: number;
-  withReputation: number;
-  resolvedDirectory: number;
-  organic: number;
-  sybilRing: number;
-  x402Payable: number;
-  avgRaw: number;
-  avgTrust: number;
-};
-
-export type RingInfo = {
-  wallet: string;
-  agentsReviewed: number;
-  totalAgents: number;
-};
-
 export type Snapshot = {
-  window: { start: string; end: string; days: number };
-  kpis: Kpis;
-  adoption: AdoptionPoint[];
   agents: TrustAgent[];
-  ring: RingInfo;
+  withReputation: number;
 };
 
 function categorize(independentClients: number, flags: string): TrustCategory {
@@ -80,9 +58,6 @@ export function loadSnapshot(): Snapshot {
   const dir = analysisDir();
 
   const trustRows = readCsv(dir, "erc8004_trust.csv");
-  const adoptionRows = readCsv(dir, "erc8004_adoption.csv");
-  const resolvedRows = readCsv(dir, "erc8004_directory_resolved.csv");
-  const feedbackRows = readCsv(dir, "erc8004_feedback_raw.csv");
 
   const agents: TrustAgent[] = trustRows
     .map((r) => {
@@ -107,57 +82,6 @@ export function loadSnapshot(): Snapshot {
     })
     .sort((a, b) => b.trustScore - a.trustScore || b.uniqueClients - a.uniqueClients);
 
-  const adoption: AdoptionPoint[] = adoptionRows.map((r) => ({
-    day: r.day,
-    newAgents: num(r.new_agents),
-    cumulative: num(r.cumulative),
-  }));
-
-  // Derive the sybil-ring wallet dynamically: the client that reviewed the most agents.
-  const breadth = new Map<string, Set<number>>();
-  for (const r of feedbackRows) {
-    const client = (r.client || "").toLowerCase();
-    if (!client) continue;
-    if (!breadth.has(client)) breadth.set(client, new Set());
-    breadth.get(client)!.add(num(r.agent_id));
-  }
-  let ringWallet = "";
-  let ringReviewed = 0;
-  for (const [client, set] of breadth) {
-    if (set.size > ringReviewed) {
-      ringReviewed = set.size;
-      ringWallet = client;
-    }
-  }
-
-  const withReputation = agents.length;
-  const organic = agents.filter((a) => a.category === "organic").length;
-  const sybilRing = agents.filter((a) => a.category === "sybil").length;
-  const x402Payable = resolvedRows.filter((r) => bool(r.x402_resolved)).length;
-  const avg = (xs: number[]) =>
-    xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0;
-
-  const kpis: Kpis = {
-    registered: adoption.length ? adoption[adoption.length - 1].cumulative : 0,
-    withReputation,
-    resolvedDirectory: resolvedRows.length,
-    organic,
-    sybilRing,
-    x402Payable,
-    avgRaw: avg(agents.map((a) => a.avgScore)),
-    avgTrust: avg(agents.map((a) => a.trustScore)),
-  };
-
-  cached = {
-    window: {
-      start: adoption[0]?.day ?? "",
-      end: adoption[adoption.length - 1]?.day ?? "",
-      days: adoption.length,
-    },
-    kpis,
-    adoption,
-    agents,
-    ring: { wallet: ringWallet, agentsReviewed: ringReviewed, totalAgents: withReputation },
-  };
+  cached = { agents, withReputation: agents.length };
   return cached;
 }
