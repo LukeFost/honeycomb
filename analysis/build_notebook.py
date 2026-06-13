@@ -30,10 +30,18 @@ import matplotlib.dates as mdates
 import seaborn as sns
 from google.cloud import bigquery
 
+# Standalone auth: point at the repo-local service-account key (.secrets/gcp-key.json)
+# if GOOGLE_APPLICATION_CREDENTIALS isn't already set, so the notebook runs without
+# manual env setup or cross-repo paths.
+if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+    for _k in ("../.secrets/gcp-key.json", ".secrets/gcp-key.json", "gcp-key.json"):
+        if os.path.exists(_k):
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath(_k); break
+
 # Billing project — queries are billed here, but scan the PUBLIC dataset.
 # Override via env: BQ_BILLING_PROJECT. Must have billing enabled (sandbox projects
 # share a small daily free quota and will 403 once it's spent).
-BILLING_PROJECT = os.environ.get("BQ_BILLING_PROJECT", "foster-housing-connect")
+BILLING_PROJECT = os.environ.get("BQ_BILLING_PROJECT")  # None -> client uses the key's project
 
 # Hard cap so a mis-pruned query can't run up cost.
 # The logs table is 3.7 TB, partitioned by MONTH on block_timestamp and clustered on
@@ -70,7 +78,7 @@ def q(sql: str) -> pd.DataFrame:
     print(f"billed {gb:.3f} GB  (~${gb/1000*6.25:.4f})  |  {len(df)} rows")
     return df
 
-print("client ready, project:", client.project)""")
+print("client ready")""")
 
 md("""## 1. Adoption curve
 
