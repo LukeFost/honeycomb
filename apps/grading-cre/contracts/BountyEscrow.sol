@@ -82,6 +82,11 @@ contract BountyEscrow is IReceiver {
     uint256 public nextJobId = 1;
     mapping(uint256 => Job) public jobs;
 
+    /// @notice Grace window after `expiredAt` during which only settlement (onReport)
+    ///         is allowed — the grader runs after the deadline, so claimRefund must
+    ///         not snipe a refund before settlement can land.
+    uint256 public constant SETTLE_GRACE = 1 hours;
+
     event JobCreated(
         uint256 indexed jobId,
         address indexed client,
@@ -207,7 +212,7 @@ contract BountyEscrow is IReceiver {
     function claimRefund(uint256 jobId) external {
         Job storage j = jobs[jobId];
         require(j.status == JobStatus.Funded, "not refundable");
-        require(block.timestamp > j.expiredAt, "not expired");
+        require(block.timestamp > j.expiredAt + SETTLE_GRACE, "not expired");
         uint256 amount = j.budget;
         require(amount > 0, "nothing");
         j.budget = 0;

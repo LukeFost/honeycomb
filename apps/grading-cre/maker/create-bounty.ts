@@ -19,7 +19,7 @@ import { execSync } from "node:child_process";
 
 const RPC = process.env.RPC ?? "https://ethereum-sepolia-rpc.publicnode.com";
 const PK = process.env.SEP_PRIVATE_KEY;
-const ESCROW = process.env.ESCROW ?? "0x12eA1Cc33445F1A1F75555d7B26255f25D87B479";
+const ESCROW = process.env.ESCROW ?? "0x8b7d8Af7C6b051828f385fD53446266d6fCc3023";
 const USDC = process.env.USDC ?? "0x3211C5E4B4d57B673d67a976699121667f419e17";
 if (!PK) throw new Error("SEP_PRIVATE_KEY not set");
 
@@ -47,10 +47,15 @@ console.error(`[maker] specCid=${specCid}`);
 console.error(`[maker] approving ${budget} to escrow...`);
 send(`${USDC} "approve(address,uint256)" ${ESCROW} ${budget}`);
 
-// 3. createBounty — jobId is nextJobId (createBounty does jobId = nextJobId++).
-const jobId = cast(`call ${ESCROW} "nextJobId()(uint256)"`);
-console.error(`[maker] creating bounty jobId=${jobId}...`);
-send(`${ESCROW} "createBounty(uint256,uint64,bytes32,string)" ${budget} ${deadline} ${testsHash} "${specCid}"`);
+// 3. createBounty — read the real jobId from the JobCreated event (topics[1]),
+//    not nextJobId (a concurrent creation could shift it).
+console.error(`[maker] creating bounty...`);
+const receipt = JSON.parse(
+	send(`${ESCROW} "createBounty(uint256,uint64,bytes32,string)" ${budget} ${deadline} ${testsHash} "${specCid}"`),
+);
+const log = (receipt.logs ?? []).find((l: any) => l.address?.toLowerCase() === ESCROW.toLowerCase());
+if (!log) throw new Error("JobCreated event not found in receipt");
+const jobId = BigInt(log.topics[1]).toString(); // keep as string — ids can exceed 2^53
 
 console.error(`[maker] done. jobId=${jobId}`);
-console.log(JSON.stringify({ jobId: Number(jobId), budget: budget.toString(), deadline, testsHash, specCid }, null, 2));
+console.log(JSON.stringify({ jobId, budget: budget.toString(), deadline, testsHash, specCid }, null, 2));

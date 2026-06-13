@@ -20,7 +20,7 @@ CRE workflow (HTTP trigger) → KeystoneForwarder → BountyEscrow.onReport
 
 | | Address |
 |---|---|
-| BountyEscrow | `0x12eA1Cc33445F1A1F75555d7B26255f25D87B479` |
+| BountyEscrow | `0x8b7d8Af7C6b051828f385fD53446266d6fCc3023` |
 | MockUSDC (6dp) | `0x3211C5E4B4d57B673d67a976699121667f419e17` |
 | ERC-8004 Identity Registry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 | KeystoneForwarder (sim, `--broadcast`) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88` |
@@ -57,7 +57,7 @@ cre workflow simulate grading-workflow --non-interactive --trigger-index 0 \
 Verify:
 
 ```bash
-ESC=0x12eA1Cc33445F1A1F75555d7B26255f25D87B479
+ESC=0x8b7d8Af7C6b051828f385fD53446266d6fCc3023
 cast call $ESC "isSettled(uint256)(bool)" <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 cast call $ESC "winnerWalletOf(uint256)(address)" <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
@@ -78,16 +78,35 @@ cre workflow simulate grading-workflow --non-interactive \
 The reward token is per-bounty (snapshotted) with an owner-settable default:
 
 ```bash
-cast send 0x12eA1Cc33445F1A1F75555d7B26255f25D87B479 "setRewardToken(address)" <USDC> \
+cast send 0x8b7d8Af7C6b051828f385fD53446266d6fCc3023 "setRewardToken(address)" <USDC> \
   --private-key $SEP_PRIVATE_KEY --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
 
 New bounties use the new token; already-funded ones keep theirs.
 
+## Security posture
+
+**Trigger auth (fix #1, done):** `config.production.json` sets `authorizedKeys` to the
+grader's address, so a **deployed** workflow only accepts settlements signed by the
+grader (the DON enforces it). `config.staging.json` is left **open** (`[]`) because
+local `cre workflow simulate` feeds the payload directly and can't sign it — gating
+staging makes the simulator reject the run. So: sim = open by necessity; deployment =
+gated. Combined with the KeystoneForwarder (which binds the exact job/winner/score the
+DON signed), this makes a deployed settlement bound to an authenticated grader.
+
+**Not yet fixed (#2 — bind the attestation):** the TEE proof only certifies "code is
+valid", not *which job/winner/score*. `grade.ts` takes `jobId`/`winnerAgentId` from the
+CLI and the workflow signs them verbatim; `reason` is an opaque `bytes32`. A genuine
+proof could be reused on a different job/winner. Real fix needs the enclave to **sign
+`(jobId, winnerAgentId, score, valid, submissionHash, testsHash)`** with an
+attestation-bound key, register that key on-chain (`BountyEscrow.attesterKey`), and have
+`onReport` verify the signature + input commitments. Requires running our own enclave
+(the beta Confidential AI Attester won't sign an arbitrary tuple). See the project
+memory note for details.
+
 ## Stubs / simplifications (not production)
 
 - `grader/grade.ts` `executionGrade()` is a **STUB** (real scoring needs a compute
   enclave + Uniswap data); `attestValidity()` is real.
-- HTTP trigger is open (`authorizedKeys: []`) — anyone can post a settlement.
 - Reward token is `MockUSDC` (open mint). Deferred: reputation, CRON deadline
-  trigger / sealed reveal, ERC-8004 Validation Registry.
+  trigger / sealed reveal, ERC-8004 Validation Registry, and fix #2 above.

@@ -1,5 +1,5 @@
 {
-  "authorizedKeys": [],
-  "consumerAddress": "0x0000000000000000000000000000000000000000",
+  "authorizedKeys": ["0x06853dcD64c0d6e9C6b9B86AD77218a9545b7f98"],
+  "consumerAddress": "0x8b7d8Af7C6b051828f385fD53446266d6fCc3023",
   "chainSelectorName": "ethereum-testnet-sepolia"
 }

@@ -4,3 +4,5 @@ packages:
   # grading-cre is a CRE workflow project (uses bun + the CRE WASM toolchain),
   # not part of the pnpm/turbo workspace.
   - "!apps/grading-cre"
+  # strategy-vault is a Foundry (Solidity) app + future CRE workflow — not a JS package.
+  - "!apps/strategy-vault"

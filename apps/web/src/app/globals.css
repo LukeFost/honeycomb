@@ -1,8 +1,10 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #060606;
+  --foreground: #ededed;
+  --mono: #e4e4e4;
+  --mono-dim: #969696;
 }
 
 @theme inline {
@@ -12,15 +14,206 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* ----- splash (monochrome) ----- */
+
+.hc-root {
+  background:
+    radial-gradient(50% 45% at 50% 58%, rgba(255, 196, 64, 0.08), transparent 60%),
+    radial-gradient(120% 90% at 50% -10%, rgba(255, 255, 255, 0.05), transparent 55%),
+    #060606;
+}
+
+/* footer content reveals once the bee wakes and joins the swarm */
+.hc-fade {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.9s ease, transform 0.9s ease;
+}
+.hc-fade.hc-in {
+  opacity: 1;
+  transform: none;
+}
+/* narrative captions */
+.hc-cap {
+  color: #fff6e2;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.8s ease, transform 0.8s ease;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.7), 0 0 40px rgba(255, 176, 32, 0.15);
+  text-wrap: balance;
+}
+.hc-cap.hc-in {
+  opacity: 1;
+  transform: none;
+}
+
+.hc-scroll {
+  color: rgba(235, 235, 235, 0.45);
+  transition: color 0.2s ease;
+}
+.hc-scroll:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+.hc-title {
+  animation: hcTitleIn 1s ease both;
+  animation-delay: 0.2s;
+}
+@keyframes hcTitleIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hc-fade {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .hc-title {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+}
+
+/* ----- improvement section + chart ----- */
+
+.hc-section {
+  background:
+    radial-gradient(80% 60% at 50% 0%, rgba(255, 196, 64, 0.05), transparent 60%),
+    #060606;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.hc-h2 {
+  color: #fff6e2;
+}
+.hc-body {
+  color: rgba(237, 237, 237, 0.72);
+}
+.hc-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.hc-axis {
+  fill: rgba(235, 235, 235, 0.5);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 13px;
+}
+.hc-axis-label {
+  fill: rgba(235, 235, 235, 0.4);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+/* keep the center readable over the swarm */
+.hc-vignette {
+  background: radial-gradient(
+    60% 55% at 50% 45%,
+    rgba(6, 6, 6, 0.82) 0%,
+    rgba(6, 6, 6, 0.45) 45%,
+    transparent 75%
+  );
+}
+
+/* hex-shaped binary mark: 1 0 1 with tilted wings */
+.hc-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.05em;
+  font-family: var(--font-geist-mono), monospace;
+  font-weight: 700;
+  font-size: 2.6rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.4));
+}
+.hc-mark-body {
+  color: #ffffff;
+  font-size: 1.15em;
+}
+.hc-mark-wing {
+  color: var(--mono);
+  display: inline-block;
+}
+.hc-mark-wing:first-child {
+  transform: rotate(-32deg) translateY(-0.08em);
+}
+.hc-mark-wing:last-child {
+  transform: rotate(32deg) translateY(-0.08em);
+}
+
+.hc-eyebrow {
+  color: rgba(235, 235, 235, 0.6);
+}
+
+.hc-title {
+  color: #ffffff;
+  text-shadow: 0 0 40px rgba(255, 255, 255, 0.22);
+}
+
+.hc-tagline {
+  color: rgba(237, 237, 237, 0.8);
+}
+
+.hc-accent {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.hc-sub {
+  color: rgba(235, 235, 235, 0.5);
+}
+
+/* buttons */
+.hc-btn {
+  display: inline-flex;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0 1.6rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease,
+    border-color 0.2s ease;
+}
+.hc-btn:hover {
+  transform: translateY(-1px);
+}
+.hc-btn-primary {
+  background: #f2f2f2;
+  color: #111111;
+  box-shadow: 0 6px 26px rgba(255, 255, 255, 0.18);
+}
+.hc-btn-primary:hover {
+  background: #ffffff;
+  box-shadow: 0 8px 34px rgba(255, 255, 255, 0.28);
+}
+.hc-btn-ghost {
+  border: 1px solid rgba(235, 235, 235, 0.25);
+  color: rgba(255, 255, 255, 0.9);
+}
+.hc-btn-ghost:hover {
+  border-color: rgba(235, 235, 235, 0.6);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.hc-chips {
+  color: rgba(237, 237, 237, 0.5);
+}
+.hc-dot {
+  color: rgba(235, 235, 235, 0.4);
 }

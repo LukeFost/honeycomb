@@ -1,0 +1,19 @@
+# Foundry config for the StrategyVault app (Solidity + future CRE workflow).
+# Matches honeycomb's grading-cre conventions (src = "contracts", via_ir).
+[profile.default]
+src = "contracts"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+remappings = ["forge-std/=lib/forge-std/src/"]
+# Allows the gated real-swap script to read ../../.env (repo-root secrets).
+fs_permissions = [{ access = "read", path = "./" }]
+
+[rpc_endpoints]
+# Override with `MAINNET_RPC_URL=... forge test`. Public default lets the fork test run keyless.
+mainnet = "${MAINNET_RPC_URL}"

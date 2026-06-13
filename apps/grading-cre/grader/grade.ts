@@ -117,8 +117,8 @@ if (!path) {
 	console.error("usage: bun grader/grade.ts <submission-file> [jobId] [winnerAgentId]");
 	process.exit(1);
 }
-const jobId = Number(process.argv[3] ?? 1); // ERC-8183 job id
-const winnerAgentId = Number(process.argv[4] ?? 22); // ERC-8004 agentId
+const jobId = process.argv[3] ?? "1"; // ERC-8183 job id (string — can exceed 2^53)
+const winnerAgentId = process.argv[4] ?? "22"; // ERC-8004 agentId (string)
 const code = readFileSync(path, "utf8");
 const filename = path.split("/").pop()!;
 
