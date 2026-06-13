@@ -26,3 +26,11 @@ attestor/private/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# off-chain metadata fetch cache (regenerable)
+.x402_cache.json
+
+# secrets — service-account keys (never commit)
+.secrets/
+*-key.json
+gcp-key.json
