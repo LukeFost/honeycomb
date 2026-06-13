@@ -1,0 +1,106 @@
+agent_id,feedback_count,unique_clients,avg_score,self_feedback,client_concentration,batch_tx_share,reviewer_ring,score_std,independent_clients,trust_score,trust_mult,flags,name,x402_resolved,services,agent_uri
+34135,9.0,7.0,100.0,0.0,0.778,0.0,1.0,0.0,7,100.0,1.0,broad independent client base,Surf AI,False,"web,MCP",https://mcp.surfliquid.com/agent.json
+34256,2.0,1.0,85.0,0.0,0.5,0.0,1.0,0.0,1,42.5,0.5,1.0 independent client(s),,,,https://transactai.io/agents/executor.json
+32407,1.0,1.0,80.0,0.0,1.0,0.0,1.0,0.0,1,40.0,0.5,1.0 independent client(s),Normie #9387 - Yagar,False,"web,A2A",https://api.normies.art/agents/metadata/9387
+2364,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+10307,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22697,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22705,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22739,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22754,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22758,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22759,2.0,1.0,100.0,0.0,0.5,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22788,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22795,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22814,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22839,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+22846,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+25067,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+25490,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+27432,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+28359,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29005,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29010,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29052,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29054,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29056,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29059,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29061,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29062,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29063,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+31860,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+31921,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+32156,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+32965,1.0,1.0,100.0,0.0,1.0,0.0,101.0,0.0,0,5.0,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Buyer,True,,"data:application/json;base64,eyJ0eXBlIjoiaHR0cHM6Ly9laXBzLmV0aGVyZXVtLm9yZy9FSVBTL2VpcC04MDA0I3JlZ2lzdHJhdGlvbi12MSIsIm5hbWUiOiJCdXllciIsImRlc2NyaXB0aW9uIjoiQnV5ZXIgLSBtYXJrZXRpbmcgQUkgZW1wbG95ZWUiLCJpbWFnZSI6Ii91cGxvYWRzL2F2YXRhcnMvNmZkODFiZWQtMGRkMy00YTBlLWJiYzctMmM0NjExNDQxYjM5LTE3NzkxODgyNTcwMzYuanBnIiwic2VydmljZXMiOlt7Im5hbWUiOiJBMkEiLCJlbmRwb2ludCI6Imh0dHBzOi8vd29ya2FnbnQuYWkvYXBpL2FnZW50cy9wdWJsaWMvYnV5ZXItZWRhYTMxL2FnZW50LWNhcmQiLCJ2ZXJzaW9uIjoiMC4zLjAiLCJhMmFTa2lsbHMiOlsibmF0dXJhbF9sYW5ndWFnZV9wcm9jZXNzaW5nL25hdHVyYWxfbGFuZ3VhZ2VfZ2VuZXJhdGlvbi9zdW1tYXJpemF0aW9uIl19LHsibmFtZSI6Ik9BU0YiLCJlbmRwb2ludCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hZ250Y3kvb2FzZi8iLCJ2ZXJzaW9uIjoiMC44LjAiLCJza2lsbHMiOlsibmF0dXJhbF9sYW5ndWFnZV9wcm9jZXNzaW5nL25hdHVyYWxfbGFuZ3VhZ2VfZ2VuZXJhdGlvbi9zdW1tYXJpemF0aW9uIl0sImRvbWFpbnMiOlsibWVkaWFfYW5kX2VudGVydGFpbm1lbnQvY29udGVudF9jcmVhdGlvbiJdfSx7Im5hbWUiOiJ3ZWIiLCJlbmRwb2ludCI6Imh0dHBzOi8vd29ya2FnbnQuYWkvZS9idXllci1lZGFhMzEifV0sImFjdGl2ZSI6dHJ1ZSwieDQwMlN1cHBvcnQiOnRydWUsInN1cHBvcnRlZFRydXN0IjpbInJlcHV0YXRpb24iXX0="
+26345,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+26346,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+28464,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+28488,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+28947,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29033,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29034,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29039,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29064,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29091,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+29403,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+31786,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+31873,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+31884,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+32038,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+32057,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+32303,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+32340,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+32355,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #6352 - Inven,False,"web,A2A",https://api.normies.art/agents/metadata/6352
+32362,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #4354 - Zori,False,"web,A2A",https://api.normies.art/agents/metadata/4354
+32371,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #1608 - Xedor,False,"web,A2A",https://api.normies.art/agents/metadata/1608
+32470,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #2184 - Redik,False,"web,A2A",https://api.normies.art/agents/metadata/2184
+32471,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #1932 - Geke,False,"web,A2A",https://api.normies.art/agents/metadata/1932
+32472,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #4951 - Obis,False,"web,A2A",https://api.normies.art/agents/metadata/4951
+32473,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #541 - Zucor,False,"web,A2A",https://api.normies.art/agents/metadata/541
+32474,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #393 - Mizen,False,"web,A2A",https://api.normies.art/agents/metadata/393
+32475,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #736 - Evie,False,"web,A2A",https://api.normies.art/agents/metadata/736
+32478,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #8233 - Ashen,False,"web,A2A",https://api.normies.art/agents/metadata/8233
+32479,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #2332 - Geen,False,"web,A2A",https://api.normies.art/agents/metadata/2332
+32481,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #6594 - Gous,False,"web,A2A",https://api.normies.art/agents/metadata/6594
+32482,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #1894 - Goda,False,"web,A2A",https://api.normies.art/agents/metadata/1894
+32483,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #3243 - Pute,False,"web,A2A",https://api.normies.art/agents/metadata/3243
+32565,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #2601 - Seil,False,"web,A2A",https://api.normies.art/agents/metadata/2601
+32566,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #9157 - Dipor,False,"web,A2A",https://api.normies.art/agents/metadata/9157
+32571,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #2320 - Anwen,False,"web,A2A",https://api.normies.art/agents/metadata/2320
+32572,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #4635 - Kitik,False,"web,A2A",https://api.normies.art/agents/metadata/4635
+32573,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #3863 - Supe,False,"web,A2A",https://api.normies.art/agents/metadata/3863
+32635,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #1522 - Ronel,False,"web,A2A",https://api.normies.art/agents/metadata/1522
+32636,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #2417 - Wautch,False,"web,A2A",https://api.normies.art/agents/metadata/2417
+32637,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #3392 - Tabel,False,"web,A2A",https://api.normies.art/agents/metadata/3392
+32727,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #9630 - Piwe,False,"web,A2A",https://api.normies.art/agents/metadata/9630
+32778,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #7528 - Dapor,False,"web,A2A",https://api.normies.art/agents/metadata/7528
+32780,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #8055 - Quan,False,"web,A2A",https://api.normies.art/agents/metadata/8055
+32781,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #3012 - Dexten,False,"web,A2A",https://api.normies.art/agents/metadata/3012
+32806,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #3332 - Gesar,False,"web,A2A",https://api.normies.art/agents/metadata/3332
+32809,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #927 - Laje,False,"web,A2A",https://api.normies.art/agents/metadata/927
+32810,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #6303 - Cyarn,False,"web,A2A",https://api.normies.art/agents/metadata/6303
+32812,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #4054 - Zotor,False,"web,A2A",https://api.normies.art/agents/metadata/4054
+32873,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #4035 - Kidin,False,"web,A2A",https://api.normies.art/agents/metadata/4035
+33003,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #8973 - Huthi,False,"web,A2A",https://api.normies.art/agents/metadata/8973
+33004,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #7360 - Lurk,False,"web,A2A",https://api.normies.art/agents/metadata/7360
+33006,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #3205 - Peca,False,"web,A2A",https://api.normies.art/agents/metadata/3205
+33041,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #9115 - Felen,False,"web,A2A",https://api.normies.art/agents/metadata/9115
+33043,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #9577 - Ivbe,False,"web,A2A",https://api.normies.art/agents/metadata/9577
+33044,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #3289 - Litar,False,"web,A2A",https://api.normies.art/agents/metadata/3289
+33668,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #2057 - Dimi,False,"web,A2A",https://api.normies.art/agents/metadata/2057
+33670,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #728 - Dadik,False,"web,A2A",https://api.normies.art/agents/metadata/728
+33671,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #1377 - Ivnik,False,"web,A2A",https://api.normies.art/agents/metadata/1377
+33804,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #6595 - Dodar,False,"web,A2A",https://api.normies.art/agents/metadata/6595
+33807,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #8279 - Zyue,False,"web,A2A",https://api.normies.art/agents/metadata/8279
+33809,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #3328 - Danik,False,"web,A2A",https://api.normies.art/agents/metadata/3328
+34001,1.0,1.0,95.0,0.0,1.0,0.0,101.0,0.0,0,4.75,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Zyfai Rebalancer Agent for 0xeeDA685c6021989f9C56fde14FEe06906cb04a46,False,"web,MCP",ipfs://bafkreicpwmggzkh43f4bri6rq6x5mgdqdqarwkkv3okctyhvebsabxdfqu
+28268,1.0,1.0,91.0,0.0,1.0,0.0,101.0,0.0,0,4.55,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+28364,1.0,1.0,90.0,0.0,1.0,0.0,101.0,0.0,0,4.5,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+31793,1.0,1.0,90.0,0.0,1.0,0.0,101.0,0.0,0,4.5,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+31890,1.0,1.0,90.0,0.0,1.0,0.0,101.0,0.0,0,4.5,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+32363,1.0,1.0,90.0,0.0,1.0,0.0,101.0,0.0,0,4.5,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #6588 - Sica,False,"web,A2A",https://api.normies.art/agents/metadata/6588
+32782,1.0,1.0,90.0,0.0,1.0,0.0,101.0,0.0,0,4.5,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #6453 - Fute,False,"web,A2A",https://api.normies.art/agents/metadata/6453
+32813,1.0,1.0,90.0,0.0,1.0,0.0,101.0,0.0,0,4.5,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),Normie #1 - Seus,False,"web,A2A",https://api.normies.art/agents/metadata/1
+20024,1.0,1.0,88.0,0.0,1.0,0.0,101.0,0.0,0,4.4,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+20029,1.0,1.0,88.0,0.0,1.0,0.0,101.0,0.0,0,4.4,0.05,ring-only reviewers; reviewed by ring wallet (breadth 101),,,,
+31875,1.0,1.0,5.0,0.0,1.0,0.0,1.0,0.0,1,2.5,0.5,1.0 independent client(s),,,,
