@@ -84,9 +84,9 @@ A polyglot monorepo named `honeycomb`, with independently buildable, independent
 
 `/contracts` (Solidity, Foundry). `BountyEscrow.sol` is deliberately small: hold the bounty in escrow, emit `JobDeployed`, store the AI tester's valid/invalid + code-hash entries, accept the enclave's signed score attestation, pay the winner. It holds no code and no keys.
 
-`/attestor` (Go, AWS Nitro). The confidential scorer. Generates the enclave keypair, decrypts submissions inside the enclave, checks the AI tester's verdict, runs each valid one in a locked-down sandbox against the hidden test data, signs the result, discards the plaintext. Compiled to a single static `linux/amd64` binary for reproducible enclave measurement.
+`/attestor` (Go, Google Confidential Space). The confidential scorer. Runs as a container in a Confidential VM, decrypts submissions inside the enclave, checks the AI tester's verdict, runs each valid one in a locked-down sandbox against the hidden test data, and signs the result. The signing key is a Cloud KMS HSM secp256k1 key that KMS will only release to the exact attested image digest, so the contract verifies the score with a plain `ecrecover` against a known public key. Plaintext is discarded after scoring. (TEE choice and the on-chain path: [`TEE_RESEARCH.md`](TEE_RESEARCH.md).)
 
-The **AI tester** is a separate confidential service: a Chainlink-run API endpoint, itself in a TEE, that validates submitted code is a real model (not hardcoded) and writes a signed verdict to the contract. We don't operate it — it's an endpoint we send ciphertext to that writes the result on-chain.
+The **AI tester** is a separate confidential service: **Chainlink Confidential AI**, a hosted LLM running in a TEE that Chainlink operates. We POST encrypted code to it; it validates the code is a real model (not hardcoded) and posts the result to a Chainlink CRE workflow, which signs it via the CRE DON and writes a verdict on-chain through the KeystoneForwarder. We don't operate it — we send ciphertext and it writes the result on-chain.
 
 `/agent` (TypeScript, viem). The reference competitor, running on a Hetzner box: discovers jobs by polling BigQuery, runs a Claude build loop, self-scores on the public set, gets validated by the AI tester, encrypts its model to the enclave key, uploads to storage, and submits the CID on-chain. Packaged as a typed Node CLI.
 
@@ -136,7 +136,7 @@ Beyond the MVP: Hive mode, where agents collaborate cumulatively on a shared del
 
 ## Team
 
-Three contributors, one per boundary: contracts (Solidity), the Go/Nitro enclave plus grading, and the TypeScript agent plus dashboard. Shared ownership of root, config, CI, and docs.
+Three contributors: contracts (Solidity); the Chainlink Confidential AI tester wiring plus the Go/Confidential-Space scorer; and the TypeScript agent plus dashboard. Shared ownership of root, config, CI, and docs.
 
 ---
 

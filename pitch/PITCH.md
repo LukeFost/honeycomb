@@ -1,7 +1,8 @@
 # 🍯 Honeycomb — Pitch & Build Map
 
 > Team-facing map: what we're building, who owns what, where it stands.
-> Narrative in [`README.md`](./README.md). Interfaces in [`INTERFACES.md`](./INTERFACES.md). Original brief in [`BigPicture.md`](./BigPicture.md).
+> Narrative in [`README.md`](./README.md). Interfaces in [`INTERFACES.md`](./INTERFACES.md).
+> TEE choice for the scorer in [`TEE_RESEARCH.md`](./TEE_RESEARCH.md). Original brief in [`BigPicture.md`](./BigPicture.md).
 
 ---
 
@@ -35,15 +36,20 @@ attestation is verifiable on-chain.
 
 ## The two confidential services (the part people conflate)
 
-- **AI Tester** — a Chainlink-run API endpoint, itself in a TEE. Takes encrypted code,
-  decrypts it confidentially, judges "real model, not hardcoded," and writes a signed
-  valid/invalid + code-hash to the contract. Runs per submission during the open window.
-- **Confidential Scorer** — the Go/Nitro enclave. At the deadline it queues every
+- **AI Tester** — **Chainlink Confidential AI** (a hosted LLM-in-a-TEE Chainlink runs).
+  We POST encrypted code to `/v1/inference`; it judges "real model, not hardcoded" and
+  posts the result to a **CRE workflow**, which signs it via the CRE DON and writes a
+  valid/invalid + code-hash verdict on-chain through the KeystoneForwarder
+  (`onReport`). Runs per submission during the open window. We have the API key.
+  Reference shape: [chainlink-confidential-ai-attester-demo](https://github.com/smartcontractkit/chainlink-confidential-ai-attester-demo).
+- **Confidential Scorer** — our own Go enclave, **leaning Google Cloud Confidential
+  Space** (see [`TEE_RESEARCH.md`](./TEE_RESEARCH.md)). At the deadline it queues every
   submission CID, keeps only those the tester marked valid, runs them in a sandbox
-  against the hidden test data, signs scores, and discards plaintext.
+  against the hidden test data, signs scores via a Cloud KMS HSM secp256k1 key released
+  only to the attested image (contract verifies with `ecrecover`), and discards plaintext.
 
-We operate neither's internals. The tester is just an endpoint we hand ciphertext to;
-it writes the result on-chain.
+We don't operate the AI Tester's internals — Chainlink hosts it; we send ciphertext and
+it writes the verdict on-chain. The Scorer is ours to build.
 
 ## Sponsor tracks
 
@@ -60,11 +66,13 @@ it writes the result on-chain.
 | `apps/web` (dashboard + MCP) | **Luke** | Next.js + BigQuery | 🟡 shell scaffolded, boots clean |
 | `agent/` | **Luke** | TypeScript + viem | ⬜ not started |
 | `contracts/` | TBD (Solidity owner) | Foundry | ⬜ not started |
-| `attestor/` + grading | TBD (Go/Nitro owner) | Go + AWS Nitro + Chainlink | ⬜ not started |
+| AI Tester (CRE workflow + verdict path) | **Alex** | Chainlink Confidential AI + CRE (TS) | ⬜ not started |
+| `attestor/` + grading (Confidential Scorer) | TBD | Go + **Google Confidential Space** | ⬜ not started |
 
-> **Luke this session: `agent/` + `apps/web`** (+ likely the MCP surface). Contracts
-> and enclave/grading are teammates'. We go deep on the TS slice and define clean
-> interfaces (see [`INTERFACES.md`](./INTERFACES.md)) to the others.
+> **AI Tester is Chainlink-hosted, owned by Alex** (CRE workflow + the contract's
+> verdict-receiving path). The **Confidential Scorer** is our own Go enclave, leaning
+> Google Confidential Space — owner TBD. Luke's slice stays `agent/` + `apps/web`.
+> Clean interfaces to all of these in [`INTERFACES.md`](./INTERFACES.md).
 
 ## The trust model
 
@@ -91,8 +99,12 @@ dashboard · proportional prize-split.
 
 ## De-risk first (the 3am time sinks)
 
-1. **Go → Solidity signature compat** — the enclave signs secp256k1; the result must
-   verify under Solidity `ecrecover`. Same for the tester's signed verdict.
+1. **Go → Solidity signature compat** — the scorer signs secp256k1 via a Cloud KMS HSM
+   key (released only to the attested image); the result must verify under Solidity
+   `ecrecover`. KMS returns lower-S sigs, so derive Ethereum's `v`. Prove the full path
+   (attested image → KMS sign → `ecrecover`) before any backtest logic — see
+   [`TEE_RESEARCH.md`](./TEE_RESEARCH.md). The AI Tester's verdict comes via the CRE
+   forwarder (`onReport`), a separate path Alex owns.
 2. **Key handling** — the agent wraps the symmetric model key to the scorer key (for
    grading) and the requester key (for winner release). Pin the wrapping scheme early (INTERFACES §1).
 
