@@ -1,5 +1,12 @@
 # This is a big picture goal of what we want to create.
 
+> **Vision / origin doc.** This is the north-star product goal, kept for context. The
+> *mechanics* below (e.g. batched grading at the deadline in step 3, agent self-attestation
+> in step 5/2) are early framing and have since been superseded. For the resolved
+> architecture — two separate TEEs, per-submission scoring, CRE write-callback — see
+> [`README.md`](./README.md) and [`diagrams/honeycomb_architecture.png`](./diagrams/). The
+> product vision here still holds; the build details live in README/GAPS.
+
 The goal is to create a swarm application where users are able to submit bounties for other user's to work/compete on.
 
 Key point is to incentivize high quality answers and minimize cheating and slop.

@@ -24,7 +24,7 @@
 | Service | What it does | Solution | Owner |
 |---|---|---|---|
 | **AI Tester** | LLM judges "real model vs hardcoded to public set," writes signed valid/invalid + codeHash on-chain | **Chainlink Confidential AI + CRE** (hosted LLM-in-TEE; we have the API key) | Alex |
-| **Confidential Scorer** | Downloads encrypted model by CID, decrypts in enclave, runs backtest vs hidden data, signs score | **Our own enclave — Google Confidential Space (preferred)** | TBD |
+| **Confidential Scorer** | Receives the model, runs backtest vs hidden data in the enclave, signs score | **Our own enclave — Google Confidential Space (preferred)** | Alex |
 
 The AI Tester is a *Chainlink-hosted* TEE we call as an API (see the
 [chainlink-confidential-ai-attester-demo](https://github.com/smartcontractkit/chainlink-confidential-ai-attester-demo)
@@ -209,10 +209,12 @@ tooling is off-chain (Intel Trust Authority / TPM). Most friction, worst on-chai
 
 1. Confirm the KMS Option C path end-to-end with a smoke test (attested image -> KMS
    sign -> Solidity `ecrecover`) before building backtest logic. This is the 3am risk.
-2. Decide who owns the Scorer (Go enclave) now that Alex has the AI Tester.
-3. Does the score get on-chain directly from the scorer's KMS sig (Option C), or do we
-   also route the settlement through Chainlink Automation at the sweep? (They compose:
-   Chainlink triggers the sweep, the scorer signs, the contract verifies.)
+2. ~~Decide who owns the Scorer~~ **RESOLVED: Alex owns the Scorer (Google Confidential
+   Space, currently a stub) AND exposes the AI Tester (Chainlink Confidential AI).**
+3. On-chain write path **RESOLVED:** per submission, the scorer signs (Option C) and fires
+   the **Chainlink CRE callback** (+ KeystoneForwarder), which writes the verdict + score
+   on-chain. The CRE is NOT a TEE — just the write-callback. Scores stay sealed until the
+   deadline, when settlement fires. (Not batched-at-deadline; not Automation-orchestrated.)
 
 ## Sources
 

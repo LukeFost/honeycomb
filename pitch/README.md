@@ -40,7 +40,7 @@ A Trusted Execution Environment (TEE) collapses both trust problems with one mec
 
 2. **The grading is hidden, but the grader is provable.** The scoring harness and its private test set live inside the enclave. The enclave produces a cryptographic attestation proving the exact published scoring binary is what ran. Agents can audit *how* they're judged without seeing the *answer key*. This is the key move: trust the logic, not the operator.
 
-3. **Legitimacy is checked confidentially, before scoring.** A separate AI tester (a Chainlink-run API endpoint, itself in a TEE) takes the encrypted code, decrypts it confidentially, judges whether it's a real model and not hardcoded to the public set, and writes a signed valid/invalid + code-hash to the contract. At the sweep, the scorer only honors submissions marked valid; an invalid one decrements reputation instead of paying out.
+3. **Legitimacy is checked confidentially, alongside scoring.** A separate AI tester — Chainlink Confidential AI, a hosted LLM running in a TEE — takes the encrypted code, decrypts it confidentially, and judges whether it's a real model and not hardcoded to the public set. The two TEEs coordinate directly, off-chain; the tester's signed valid/invalid + code-hash verdict lands on-chain via the Chainlink CRE and KeystoneForwarder. The scorer only honors submissions marked valid; an invalid one decrements reputation instead of paying out.
 
 The shorthand: Kaggle's private leaderboard, made trustless.
 
@@ -64,19 +64,11 @@ Every judge asks this, so here's the direct answer.
 
 The bounty target is a Uniswap liquidity-provision strategy: given market state, a model outputs LP actions (price ranges plus capital allocation). This makes the demo concrete and the value obvious, and the scoring harness genuinely exercises Uniswap data — it replays real pool/OHLCV data and scores each model on backtested LP performance against the hidden set.
 
-![End-to-end bounty flow](diagrams/honeycomb_lifecycle.png)
-
-*Source: [`diagrams/02_bounty_lifecycle.puml`](diagrams/02_bounty_lifecycle.puml)*
-
-The two-minute walkthrough: a requester posts a bounty to build an LP strategy for a pair. Two agents compete — an honest Claude-driven builder and a cheater that hardcodes to the public set. Each sends its code to the AI tester first; the honest one is marked valid, the cheater invalid. At the deadline, Chainlink triggers the sweep, the enclave scores the valid model blind on private data, the honest agent is paid, the cheater is zeroed and loses reputation, and the attestation is verifiable on-chain. Closing line: nobody saw the code, nobody saw the tests, everybody can verify the judge.
+The two-minute walkthrough: a requester posts a bounty to build an LP strategy for a pair. Two agents compete — an honest Claude-driven builder and a cheater that hardcodes to the public set. Each submits to the scorer TEE, which checks legitimacy with the AI tester and scores the valid model blind on private data, signing each result; the honest one is marked valid, the cheater invalid. At the deadline, settlement fires through Chainlink: the honest agent is paid, the cheater is zeroed and loses reputation, and the signed score is verifiable on-chain. Closing line: nobody saw the code, nobody saw the tests, everybody can verify the judge.
 
 ## Bounty lifecycle
 
-![Bounty state machine](diagrams/honeycomb_state.png)
-
-*Source: [`diagrams/03_bounty_state.puml`](diagrams/03_bounty_state.puml)*
-
-A bounty opens when the requester funds escrow and the contract emits a `JobDeployed` event, which BigQuery indexes so agents can discover it. During the open window, agents build models, self-score against the public dataset, get validated by the AI tester, and submit encrypted with scores sealed. At the deadline, Chainlink moves it to the sweep: the enclave queues every submission CID, checks the tester's verdict, scores the valid ones in a sandbox against hidden data, signs, and discards plaintext. If at least one submission is valid it settles, paying the highest scorer (ties broken by earliest block) and writing a reputation delta; if none are valid, the escrow is refunded.
+A bounty opens when the requester funds escrow and the contract emits a `JobDeployed` event, which BigQuery indexes so agents can discover it. During the open window, agents build models, self-score against the public dataset, and submit each model to the scorer TEE. The scorer runs it per submission: it checks legitimacy with the AI tester, scores the valid ones in a sandbox against hidden data, signs the result with its KMS HSM key, and discards plaintext; the score stays sealed until the deadline. At the deadline, settlement fires: if at least one submission is valid it settles, paying the highest scorer (ties broken by earliest block) and writing a reputation delta; if none are valid, the escrow is refunded.
 
 ## Architecture
 
@@ -86,13 +78,13 @@ A polyglot monorepo named `honeycomb`, with independently buildable, independent
 
 `/attestor` (Go, Google Confidential Space). The confidential scorer. Runs as a container in a Confidential VM, decrypts submissions inside the enclave, checks the AI tester's verdict, runs each valid one in a locked-down sandbox against the hidden test data, and signs the result. The signing key is a Cloud KMS HSM secp256k1 key that KMS will only release to the exact attested image digest, so the contract verifies the score with a plain `ecrecover` against a known public key. Plaintext is discarded after scoring. (TEE choice and the on-chain path: [`TEE_RESEARCH.md`](TEE_RESEARCH.md).)
 
-The **AI tester** is a separate confidential service: **Chainlink Confidential AI**, a hosted LLM running in a TEE that Chainlink operates. We POST encrypted code to it; it validates the code is a real model (not hardcoded) and posts the result to a Chainlink CRE workflow, which signs it via the CRE DON and writes a verdict on-chain through the KeystoneForwarder. We don't operate it — we send ciphertext and it writes the result on-chain.
+The **AI tester** is a separate confidential service: **Chainlink Confidential AI**, a hosted LLM running in a TEE that Chainlink operates. The scorer calls it directly, off-chain, per submission: it sends the code, the tester validates the code is a real model (not hardcoded), and returns a legitimacy verdict. The verdict's formal on-chain record is written by a Chainlink CRE workflow through the KeystoneForwarder. We don't operate the enclave — Alex exposes it via the sponsor's API; we send the code and it returns a verdict.
 
-`/agent` (TypeScript, viem). The reference competitor, running on a Hetzner box: discovers jobs by polling BigQuery, runs a Claude build loop, self-scores on the public set, gets validated by the AI tester, encrypts its model to the enclave key, uploads to storage, and submits the CID on-chain. Packaged as a typed Node CLI.
+`/agent` (TypeScript, viem). The reference competitor, running on a Hetzner box: discovers jobs by polling BigQuery, runs a Claude build loop, self-scores on the public set, and submits its model to the scorer TEE per submission. The scorer gates it through the AI tester (legitimacy) before scoring it blind on the hidden data. Encryption to the enclave key is deferred for the first working pipeline; the plaintext model lives only inside the enclave, then is discarded. Packaged as a typed Node CLI.
 
 `/dashboard` (Next.js + BigQuery). Surfaces open bounties, submission counts, settlement history, and agent reputation. Next.js is required because BigQuery needs server-side service-account credentials that can't live in browser code, so the queries run in server route handlers.
 
-Job discovery runs through Google BigQuery, which indexes the on-chain `JobDeployed` events. Settlement is triggered by Chainlink Automation at the deadline. On-chain reputation uses ERC-8004.
+Job discovery runs through Google BigQuery, which indexes the on-chain `JobDeployed` events. Scores are written per submission via the Chainlink CRE callback and stay sealed until the deadline, when settlement fires. On-chain reputation uses ERC-8004.
 
 ### The trust model
 
@@ -102,7 +94,7 @@ The contract's only job: hold money, record the AI tester's verdicts, verify the
 
 **Uniswap.** Bounty targets are Uniswap LP strategies, and the scoring harness backtests every model against real Uniswap pool data. We exercise the protocol, not name-drop it.
 
-**Chainlink.** Two roles: Automation is the trustless referee that settles at the deadline with no human in the loop, and the AI tester runs as a Chainlink API endpoint that writes legitimacy verdicts on-chain.
+**Chainlink.** Three touchpoints: the AI tester is Chainlink Confidential AI (a hosted LLM-in-TEE) that judges legitimacy; the CRE plus KeystoneForwarder is the callback that writes the tester's verdict and the scorer's signed score on-chain; and Chainlink is the trustless referee that triggers settlement at the deadline with no human in the loop.
 
 **Google.** Job discovery, agent reputation, and every bounty's full history are queryable in BigQuery via server-side reads of indexed on-chain events. The system builds on ERC-8004, which extends Google's Agent-to-Agent (A2A) protocol.
 
@@ -110,9 +102,9 @@ The contract's only job: hold money, record the AI tester's verdicts, verify the
 
 Priority one is the demo spine; its tickets parallelize across owners. Everything else is garnish on a working spine.
 
-**P1, the spine:** the escrow contract with `JobDeployed`; the BigQuery indexer + job-discovery read path; the enclave scorer with sandbox; the AI tester legitimacy endpoint; the reference agent's build + submit path; the public test set per bounty.
+**P1, the spine:** the escrow contract with `JobDeployed`; the BigQuery indexer + job-discovery read path; the enclave scorer with sandbox (Alex's stub, made real); the AI tester wired in (Alex exposes Chainlink Confidential AI); the CRE callback that writes verdict + score on-chain (Luke); the reference agent's build + submit path; the public test set per bounty.
 
-**P2:** Chainlink Automation wiring (cron fallback if it fights us); the BigQuery dashboard; proportional prize-split mode.
+**P2:** settlement trigger at the deadline (cron fallback if Chainlink fights us); the BigQuery dashboard; proportional prize-split mode.
 
 **P3, roadmap:** ERC-8004 registry writes beyond the event hook; staking and slashing; AI-generated test sets; Hive mode.
 
@@ -142,8 +134,6 @@ Three contributors: contracts (Solidity); the Chainlink Confidential AI tester w
 
 ## Diagrams
 
-PlantUML sources are in [`diagrams/`](diagrams/) and render with any PlantUML toolchain (`plantuml *.puml`, the VS Code PlantUML extension, or plantuml.com):
+The PlantUML source is in [`diagrams/`](diagrams/) and renders with any PlantUML toolchain (`plantuml 01_architecture.puml`, the VS Code PlantUML extension, or plantuml.com):
 
-- `01_architecture.puml` — system architecture and component view
-- `02_bounty_lifecycle.puml` — end-to-end sequence; doubles as the demo storyboard
-- `03_bounty_state.puml` — bounty state machine
+- `01_architecture.puml` — system architecture and component view ([`honeycomb_architecture.png`](diagrams/honeycomb_architecture.png))
