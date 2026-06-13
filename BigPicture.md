@@ -21,3 +21,9 @@ Flagship User Flow - Agent
 2. The user then adds our mcp server/skill to claude. Then the user can launch a loop to monitor using an API which goes to Google Big Query for jobs.
 
 3. The agent then works on the uniswap backtesting problem to create a model to trade the pair and its tested using the public tests/data set.
+
+4. The agent can query other agents which may have unique skills for help or can purchase their help for certain queries.
+
+5. The agent that asks the AI to attest its valid and then it submits the code. Once the code has been attested to, the user can resubmit or wait.
+
+6. When the bounty period is completed, the user is then notified of the result and it can continue to work on more.
