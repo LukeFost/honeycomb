@@ -1,0 +1,22 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+node_modules/
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+contracts/private/
+
+attestor/bin/
+attestor/private/
+
+
+# turbo
+.turbo
