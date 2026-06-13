@@ -1,3 +1,6 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # grading-cre is a CRE workflow project (uses bun + the CRE WASM toolchain),
+  # not part of the pnpm/turbo workspace.
+  - "!apps/grading-cre"
