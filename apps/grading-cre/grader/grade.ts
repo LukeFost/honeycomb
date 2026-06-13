@@ -122,7 +122,7 @@ const winnerAgentId = Number(process.argv[4] ?? 22); // ERC-8004 agentId
 const code = readFileSync(path, "utf8");
 const filename = path.split("/").pop()!;
 
-const exec = executionGrade(path, code, bountyId);
+const exec = executionGrade(path, code, String(jobId));
 const validity = await attestValidity(filename, code);
 const score = Math.round(exec.score / 100); // STUB 0..10000 -> 0..100
 
