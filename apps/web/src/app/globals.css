@@ -52,6 +52,26 @@ body {
   opacity: 1;
   transform: none;
 }
+.hc-caret {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--gold, #ffc440);
+  animation: hcBlink 1s steps(1) infinite;
+}
+/* solid while actively typing, blink once it rests */
+.hc-caret-typing {
+  animation: none;
+}
+@keyframes hcBlink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hc-caret {
+    display: none;
+  }
+}
 
 .hc-scroll {
   color: rgba(235, 235, 235, 0.45);
