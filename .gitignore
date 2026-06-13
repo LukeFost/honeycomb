@@ -20,3 +20,9 @@ attestor/private/
 
 # turbo
 .turbo
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
