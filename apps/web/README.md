@@ -23,7 +23,7 @@ bounty market — the dashboard a requester uses to fund *quality, not slop*.
 | Requirement | Where |
 |---|---|
 | BigQuery is the query core for raw mainnet ERC-8004 data | `../../analysis` pipeline + `src/app/api/bigquery/route.ts` (live) |
-| EF ERC-8004 registry addresses | `src/lib/bq.ts` — Identity `0x8004a169…`, Reputation `0x8004baa1…` |
+| EF ERC-8004 **reputation & validation** addresses | `src/lib/bq.ts` — Identity `0x8004a169…` + Reputation `0x8004baa1…` (live via BigQuery); Validation Registry wired by canonical event + verified `topic0` (`ValidationResponse`), address via `BQ_VALIDATION_REGISTRY` (no EF mainnet deployment exists yet) |
 | Lightweight visualization frontend | this Next.js app (hand-rolled SVG charts, no chart-lib bloat) |
 
 ## Run
@@ -49,7 +49,10 @@ same convention as `analysis/bqenv.py`).
   capped by `BQ_MAX_BYTES` (default 150 GB).
 
 Env (all optional): `BQ_START` (window start, default `2026-05-14`), `BQ_BILLING_PROJECT`,
-`BQ_MAX_BYTES`, `BQ_SHOW_PROJECT=1` (reveal the full project id; masked by default).
+`BQ_MAX_BYTES`, `BQ_SHOW_PROJECT=1` (reveal the full project id; masked by default),
+`BQ_VALIDATION_REGISTRY` (ERC-8004 Validation Registry address — when set, the live panel
+adds a `ValidationResponse` count query and the dashboard links it; unset = "pending EF
+mainnet deployment", since the EF Validation Registry isn't deployed to mainnet yet).
 
 ## Architecture
 

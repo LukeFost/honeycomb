@@ -1,8 +1,7 @@
-// Server-only module: it reads the filesystem (node:fs), so it can never be bundled
-// into a client component. Keep imports of this module inside Server Components / routes.
-import fs from "node:fs";
-import path from "node:path";
-import { parseCsv, num, bool, type Row } from "./csv";
+// Server-only module: it reads the filesystem, so it can never be bundled into a client
+// component. Keep imports of this module inside Server Components / routes.
+import { num, bool } from "./csv";
+import { analysisDir, readCsv } from "./repoData";
 
 // Loads the materialized BigQuery snapshot (the analysis/ CSVs) into typed objects the
 // dashboard renders. The CSVs ARE the output of the BigQuery pipeline (see analysis/);
@@ -54,29 +53,6 @@ export type Snapshot = {
   agents: TrustAgent[];
   ring: RingInfo;
 };
-
-/** Walk up from cwd to locate the repo's analysis/ dir (env override wins). */
-function analysisDir(): string {
-  const override = process.env.HONEYCOMB_ANALYSIS_DIR;
-  if (override && fs.existsSync(path.join(override, "erc8004_trust.csv"))) {
-    return override;
-  }
-  let dir = process.cwd();
-  for (let i = 0; i < 8; i++) {
-    const candidate = path.join(dir, "analysis");
-    if (fs.existsSync(path.join(candidate, "erc8004_trust.csv"))) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  throw new Error(
-    "Could not locate analysis/erc8004_trust.csv. Run the analysis pipeline, or set HONEYCOMB_ANALYSIS_DIR.",
-  );
-}
-
-function readCsv(dir: string, file: string): Row[] {
-  return parseCsv(fs.readFileSync(path.join(dir, file), "utf8"));
-}
 
 function categorize(independentClients: number, flags: string): TrustCategory {
   if (independentClients >= 5) return "organic";

@@ -1,10 +1,13 @@
 import { loadSnapshot } from "@/lib/snapshot";
-import { DATASET, REGISTRIES, liveQueries } from "@/lib/bq";
+import { loadMarket } from "@/lib/reputation";
+import { DATASET, REGISTRIES, VALIDATION_REGISTRY, liveQueries } from "@/lib/bq";
 import { Hex, Card, Chip, AddressLink, SectionLabel, truncAddr, cn } from "@/components/ui";
 import AdoptionChart from "@/components/AdoptionChart";
 import TrustSlopeChart from "@/components/TrustSlopeChart";
 import DirectoryTable from "@/components/DirectoryTable";
 import LiveQueryPanel from "@/components/LiveQueryPanel";
+import EarnedReputationTable from "@/components/EarnedReputationTable";
+import BountyBoard from "@/components/BountyBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +20,7 @@ function fmtDay(iso: string): string {
 
 export default function Page() {
   const snap = loadSnapshot();
+  const market = loadMarket();
   const { kpis, window: win, adoption, agents, ring } = snap;
   const thin = kpis.withReputation - kpis.organic - kpis.sybilRing;
   const collapse = kpis.avgTrust > 0 ? kpis.avgRaw / kpis.avgTrust : 0;
@@ -69,6 +73,17 @@ export default function Page() {
               </span>
             </a>
           ))}
+          <div
+            className="inline-flex items-center gap-2 rounded-lg border border-honey/20 bg-honey/[0.05] px-3 py-1.5"
+            title={`${VALIDATION_REGISTRY.events.response.name} · ${VALIDATION_REGISTRY.events.response.topic0}`}
+          >
+            <span className="text-xs text-zinc-500">{VALIDATION_REGISTRY.label}</span>
+            <span className="font-mono text-xs text-honey/80">
+              {VALIDATION_REGISTRY.address
+                ? truncAddr(VALIDATION_REGISTRY.address)
+                : VALIDATION_REGISTRY.status}
+            </span>
+          </div>
         </div>
       </section>
 
@@ -125,6 +140,59 @@ export default function Page() {
         </div>
       </section>
 
+      {/* ---- layer 2: earned reputation + bounty market ---- */}
+      <section className="mb-12">
+        <SectionLabel>Layer 2 · the bounty market</SectionLabel>
+        <h2 className="mb-2 text-xl font-semibold text-zinc-100">Earned reputation — paid outcomes, not opinions</h2>
+        <p className="mb-5 max-w-3xl text-sm leading-7 text-zinc-400">
+          The global score above is gameable, so Honeycomb agents earn a second reputation that can&apos;t be sprayed on:
+          it accrues <span className="text-zinc-200">only by winning funded, enclave-graded bounties</span>. The ERC-8004
+          trust score is demoted to a cold-start prior for newcomers. Reputation ={" "}
+          <span className="font-mono text-xs text-zinc-300">enclave × valid-attestation × (1 − self-dealing) × independent-demand</span>{" "}
+          — so an agent that funds its own wins earns almost nothing despite perfect scores.
+        </p>
+
+        <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+          <Kpi value={`${market.kpis.openCount}`} label="Open bounties" sub={`${market.kpis.openRewardEth} ETH in prizes`} tone="honey" />
+          <Kpi value={`${market.kpis.paidEth} ETH`} label="Paid out" sub={`${market.kpis.settledCount} settled bounties`} />
+          <Kpi value={`${market.kpis.validations}`} label="Enclave validations" sub="signed by the TEE validator" />
+          <Kpi value={`${market.kpis.earnedAgents}`} label="Earned reputations" sub="≥1 funded win" tone="organic" />
+          <Kpi value={`${market.kpis.selfDealingFlagged + market.kpis.cheatersFlagged}`} label="Gaming caught" sub="self-dealing + cheats" tone="sybil" />
+        </div>
+
+        <Card className="mb-4 p-5">
+          <div className="mb-1 flex flex-wrap items-end justify-between gap-2">
+            <h3 className="text-lg font-semibold text-zinc-100">Earned reputation leaderboard</h3>
+            <span className="text-sm text-zinc-500">effective score · earned vs. global · {market.agents.length} agents</span>
+          </div>
+          <p className="mb-4 text-sm text-zinc-500">
+            The <span className="text-zinc-300">Enclave avg</span> column is each agent&apos;s mean{" "}
+            <span className="font-mono text-zinc-400">ValidationResponse</span> score from the TEE validator{" "}
+            <span className="font-mono text-zinc-400">{truncAddr(market.validator)}</span> — on mainnet read from the
+            Validation Registry, seeded here until it&apos;s deployed. Compare{" "}
+            <span className="text-honey-bright">Reputation</span> (what Honeycomb pays on) against raw{" "}
+            <span className="text-zinc-300">Global ERC-8004</span>: the self-dealer is validated at 96–97 yet earns near zero.
+          </p>
+          <EarnedReputationTable agents={market.agents} />
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-lg font-semibold text-zinc-100">Open bounties</h3>
+            <div className="flex flex-wrap gap-1.5">
+              {market.categories.map((c) => (
+                <Chip key={c.name} tone="muted">{c.name} · {c.total}</Chip>
+              ))}
+            </div>
+          </div>
+          <p className="mb-4 text-sm text-zinc-500">
+            Bounties are general — audits, trading strategies, zk proofs, data labeling, evals. Agents discover these by
+            polling the same BigQuery layer (the <span className="font-mono text-zinc-400">/api/bigquery</span> job board).
+          </p>
+          <BountyBoard bounties={market.openBounties} />
+        </Card>
+      </section>
+
       {/* ---- adoption ---- */}
       <section className="mb-12">
         <SectionLabel>Adoption</SectionLabel>
@@ -175,6 +243,13 @@ export default function Page() {
             start={win.start}
             queries={liveQueries(win.start).map((q) => ({ key: q.key, title: q.title, sql: q.sql }))}
             registries={Object.values(REGISTRIES).map((r) => ({ label: r.label, address: r.address }))}
+            validation={{
+              label: VALIDATION_REGISTRY.label,
+              address: VALIDATION_REGISTRY.address,
+              status: VALIDATION_REGISTRY.status,
+              eventName: VALIDATION_REGISTRY.events.response.name,
+              topic0: VALIDATION_REGISTRY.events.response.topic0,
+            }}
           />
         </Card>
       </section>
@@ -183,7 +258,7 @@ export default function Page() {
       <footer className="border-t border-edge pt-6">
         <div className="mb-4 flex flex-wrap gap-2">
           <Chip tone="organic">✓ BigQuery is the query core</Chip>
-          <Chip tone="organic">✓ EF ERC-8004 registry addresses</Chip>
+          <Chip tone="organic">✓ EF ERC-8004 registries — identity · reputation · validation</Chip>
           <Chip tone="organic">✓ Next.js visualization frontend</Chip>
         </div>
         <p className="max-w-3xl text-xs leading-6 text-zinc-500">

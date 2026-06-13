@@ -24,11 +24,13 @@ export default function LiveQueryPanel({
   start,
   queries,
   registries,
+  validation,
 }: {
   dataset: string;
   start: string;
   queries: QueryDef[];
   registries: Registry[];
+  validation: { label: string; address: string; status: string; eventName: string; topic0: string };
 }) {
   const [loading, setLoading] = useState<null | "dryrun" | "run">(null);
   const [result, setResult] = useState<LiveResult | null>(null);
@@ -74,6 +76,24 @@ export default function LiveQueryPanel({
               </div>
             </a>
           ))}
+          <div className="rounded-lg border border-honey/20 bg-honey/[0.04] px-3 py-1.5" title={validation.topic0}>
+            <div className="text-[10px] uppercase tracking-wide text-zinc-500">{validation.label}</div>
+            {validation.address ? (
+              <a
+                href={`https://etherscan.io/address/${validation.address}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-xs text-honey-bright hover:underline"
+              >
+                {truncAddr(validation.address)}
+              </a>
+            ) : (
+              <div className="font-mono text-xs text-honey/70">{validation.status}</div>
+            )}
+            <div className="font-mono text-[10px] text-zinc-600">
+              {validation.eventName} · {validation.topic0.slice(0, 10)}…
+            </div>
+          </div>
         </div>
 
         <div className="space-y-3">

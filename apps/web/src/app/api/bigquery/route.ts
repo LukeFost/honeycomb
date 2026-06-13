@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
-import { REGISTRIES, countSql } from "@/lib/bq";
+import { liveQueries } from "@/lib/bq";
 
 // Live BigQuery proxy: runs the same ERC-8004 count queries the analysis pipeline uses,
 // server-side, with the repo-local service-account key (gitignored). Defaults to dry-run
@@ -43,10 +43,8 @@ function maskProject(id: string | undefined): string | null {
   return id.length <= 3 ? "••••" : `••••${id.slice(-3)}`;
 }
 
-const QUERIES = [
-  { key: "registered", title: "Agents registered", sql: countSql(REGISTRIES.identity.address, REGISTRIES.identity.topic0, START) },
-  { key: "feedback", title: "Reputation feedback events", sql: countSql(REGISTRIES.reputation.address, REGISTRIES.reputation.topic0, START) },
-];
+// identity + reputation always; the validation registry is added once BQ_VALIDATION_REGISTRY is set.
+const QUERIES = liveQueries(START);
 
 function fail(error: string, mode: string) {
   return NextResponse.json({

@@ -27,6 +27,38 @@ export const REGISTRIES = {
   },
 } as const;
 
+// The ERC-8004 Validation Registry — where a validator (Honeycomb's TEE enclave) publishes
+// its verdict on a submission. The event schema + topic0 below are canonical: the topic0
+// hashes were computed from the EIP-8004 event signatures and the method was verified
+// against the two deployed topics above. There is NO EF Ethereum-mainnet deployment yet —
+// the Validation Registry is still under active discussion with the TEE community (per
+// erc-8004/erc-8004-contracts), so the address is configuration, not a hardcoded guess.
+// Set BQ_VALIDATION_REGISTRY to the EF address once it lands, or to Honeycomb's own
+// spec-conformant validator contract, and the live route + dashboard light it up.
+const _validationAddress =
+  (typeof process !== "undefined" ? process.env.BQ_VALIDATION_REGISTRY : undefined) ?? "";
+
+export const VALIDATION_REGISTRY = {
+  label: "Validation Registry",
+  address: _validationAddress,
+  status: _validationAddress ? "configured" : "pending EF mainnet deployment",
+  events: {
+    // ValidationResponse carries the validator's verdict — `response` (uint8) is the score.
+    response: {
+      name: "ValidationResponse",
+      sig: "ValidationResponse(address,uint256,bytes32,uint8,string,bytes32,string)",
+      topic0: "0xafddf629e874ccc3963b6a888c477bd464a6c8525024fc88759ea3b2326349ae",
+    },
+    request: {
+      name: "ValidationRequest",
+      sig: "ValidationRequest(address,uint256,string,bytes32)",
+      topic0: "0x530436c3634a98e1e626b0898be2f1e9980cc1bd2a78c07a0aba52d0a48a5059",
+    },
+  },
+} as const;
+
+export const VALIDATION_CONFIGURED = _validationAddress.length > 0;
+
 /** First block_timestamp at which ERC-8004 events appear on mainnet. */
 export const HISTORY_START = "2026-01-28";
 
@@ -51,9 +83,9 @@ GROUP BY day
 ORDER BY day`;
 }
 
-/** The named queries surfaced in the live panel. */
+/** The named queries surfaced in the live panel (validation included once configured). */
 export function liveQueries(start: string) {
-  return [
+  const queries = [
     {
       key: "registered",
       title: "Agents registered",
@@ -64,5 +96,13 @@ export function liveQueries(start: string) {
       title: "Reputation feedback events",
       sql: countSql(REGISTRIES.reputation.address, REGISTRIES.reputation.topic0, start),
     },
-  ] as const;
+  ];
+  if (VALIDATION_CONFIGURED) {
+    queries.push({
+      key: "validation",
+      title: "Validation responses (enclave verdicts)",
+      sql: countSql(VALIDATION_REGISTRY.address, VALIDATION_REGISTRY.events.response.topic0, start),
+    });
+  }
+  return queries;
 }
