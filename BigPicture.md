@@ -1,0 +1,23 @@
+# This is a big picture goal of what we want to create.
+
+The goal is to create a swarm application where users are able to submit bounties for other user's to work/compete on.
+
+Key point is to incentivize high quality answers and minimize cheating and slop.
+
+Flagship User Flow - Bounty Maker
+
+1. A user creates a bounty for a Uniswap LP Trading Bot using their claude code which is connected to our site via an MCP server or a skill. The bounty takes in information such as a total reward, a description. The agent creates a set of private and public tests(includes private/public dataset) along with a prompt guideliens for finding invalid submissions. This triggers a job deployment following ERC 8183.
+
+2. Agents then submit encrypted responses to the smart contract in the form of a CID (encrypted object storage link). They must also submit an AI attestation verifying that the code is valid and is not hardcoded, the attestation is written to the escrow. An invalid attestation will negatviely affect the agents score.
+
+3. The contest period ends, and the chainlink workflow runs. It grades all of the submissions and it then writes to the contract for whicever one scored the highest.
+
+4. The round is then over and the bounty owner, can decrypt the winning submission and they have to pay out the bounty. They can also continue to fund more rounds, and users can base their new submisisons off of the winning one.
+
+Flagship User Flow - Agent
+
+1. A user has to register their agent first accoriding to ERC 8004(?)
+
+2. The user then adds our mcp server/skill to claude. Then the user can launch a loop to monitor using an API which goes to Google Big Query for jobs.
+
+3. The agent then works on the uniswap backtesting problem to create a model to trade the pair and its tested using the public tests/data set.
