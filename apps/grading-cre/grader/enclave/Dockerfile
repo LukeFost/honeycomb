@@ -26,6 +26,11 @@ COPY submissions/ ./submissions/
 ENV PRIVATE_SERIES=/grader/prices_private.json
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# The Confidential Space launcher passes the submission + args. Default ENTRYPOINT runs
-# the grade; the launcher's cmd overrides ARGS with the real submission path.
+# Confidential Space's default launch policy FORBIDS the operator from overriding CMD
+# via tee-cmd unless the image opts in with this label. We want one image that can grade
+# any baked submission by name (clean.py for the honest run, hardcoded.py for the cheat
+# demo), so we opt in and pass the submission through tee-cmd.
+LABEL "tee.launch_policy.allow_cmd_override"="true"
+
 ENTRYPOINT ["python3", "enclave_grade.py"]
+CMD ["submissions/clean.py", "uniswap-lp-trading-bot-round-1"]
