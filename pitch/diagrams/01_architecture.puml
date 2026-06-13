@@ -13,45 +13,52 @@ actor "Requester" as REQ
 actor "Agent\nOperator" as OP
 
 rectangle "Off-chain" #f7f8fa {
-  component "Reference Agent\nTS / viem (Hetzner)\nlistens, audits, encrypts" as AGENT
+  component "Competitor Agent\nTS / viem (Hetzner)\nbuilds LP model, encrypts" as AGENT
+  component "Google BigQuery\nindexes job events" as BQ #4285f4
   component "Dashboard\nNext.js + BigQuery" as DASH
-  component "Chainlink\nAutomation" as CL
+  component "Chainlink\nAutomation (deadline sweep)" as CL
 }
 
 rectangle "Ethereum — Sepolia" #f7f8fa {
-  component "BountyEscrow.sol\nescrow / events /\nattestor-gated settle" as ESCROW
+  component "BountyEscrow.sol\nescrow / JobDeployed events /\nstores valid+hash + scores" as ESCROW
   component "ERC-8004\nReputation" as REP
 }
 
-rectangle "TEE Enclave — AWS Nitro  (trust boundary)" #fdf7e7 {
-  component "Confidential Scorer (Go)\ndecrypt -> sandboxed PoC run\nvs hidden tests -> sign -> discard" as SCORER #b88e00
+rectangle "Confidential services — TEE  (trust boundary)" #fdf7e7 {
+  component "AI Tester (Chainlink API endpoint)\ndecrypt -> validate code is real /\nnot hardcoded -> write valid+hash\nto escrow" as TESTER #b88e00
+  component "Confidential Scorer (Go enclave)\ndecrypt -> sandboxed backtest\nvs hidden tests -> sign score -> discard" as SCORER #b88e00
 }
 
 REQ --> ESCROW : 1
+ESCROW ..> BQ : 2
+BQ --> AGENT : 3
 OP --> AGENT
-ESCROW --> AGENT : 2
-AGENT --> ESCROW : 3
-ESCROW --> SCORER : 4
-CL --> SCORER : 5
-SCORER --> ESCROW : 6
-ESCROW --> REP : 7
-ESCROW ..> DASH : 8
+AGENT --> TESTER : 4a
+TESTER --> ESCROW : 4b
+AGENT --> ESCROW : 5
+CL --> SCORER : 6
+ESCROW --> SCORER : 6 (CIDs)
+SCORER --> ESCROW : 7
+ESCROW --> REP : 8
+ESCROW ..> BQ : 8
+BQ ..> DASH
+
+note right of SCORER
+  Plaintext exists only inside the TEE,
+  only during validation / scoring, then discarded.
+  Scorer only honors submissions the AI Tester marked valid.
+end note
 
 legend bottom
-  | 1 | Requester posts bounty + funds escrow |
-  | 2 | BountyPosted event (RPC) reaches agents |
-  | 3 | Agent submits encrypted findings + PoCs |
-  | 4 | Submissions forwarded to enclave (events) |
-  | 5 | Chainlink fires the deadline trigger |
-  | 6 | Enclave returns signed scores; escrow pays winner |
-  | 7 | Reputation delta written (ERC-8004) |
-  | 8 | Indexed events feed the dashboard |
+  | 1 | Requester posts bounty + funds escrow; contract emits JobDeployed |
+  | 2 | BigQuery indexes the job event |
+  | 3 | Agents discover open jobs by polling BigQuery |
+  | 4a | Agent sends encrypted code to AI Tester for legitimacy check |
+  | 4b | AI Tester writes "valid + code hash" entry to escrow |
+  | 5 | Agent submits encrypted model (CID) + wrapped key on-chain |
+  | 6 | At deadline Chainlink queues all CIDs into the scorer enclave |
+  | 7 | Enclave returns signed scores; escrow pays highest valid score |
+  | 8 | Reputation delta (ERC-8004) written; events re-indexed to dashboard |
 endlegend
-
-note bottom of SCORER
-  Plaintext exists only inside the enclave,
-  only during scoring, then discarded.
-  Attestation proves the exact scorer binary ran.
-end note
 
 @enduml

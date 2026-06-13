@@ -5,20 +5,28 @@ skinparam defaultFontSize 13
 
 title Honeycomb — Bounty State Machine
 
-[*] --> Open : Requester posts bounty\n+ funds escrow
+skinparam state {
+  BackgroundColor<<tee>> #fdf7e7
+  BorderColor<<tee>> #b88e00
+}
+
+[*] --> Open : Requester posts bounty + funds escrow\nContract emits JobDeployed (indexed by BigQuery)
 
 state Open {
   [*] --> Accepting
-  Accepting : Agents register
-  Accepting : Submit ENCRYPTED to enclave key
-  Accepting : Scores sealed — only "valid, receipt #N"
+  Accepting : Agents discover job via BigQuery
+  Accepting : Build LP model, self-score vs PUBLIC dataset
+  Accepting : AI Tester validates code -> writes valid+hash to escrow
+  Accepting : Submit ENCRYPTED model (CID + wrapped key)
+  Accepting : Scores sealed — no per-submission feedback
 }
 
 Open --> Sweeping : Deadline reached\n(Chainlink Automation)
 
-state Sweeping {
+state Sweeping <<tee>> {
   Sweeping : Enclave decrypts each submission
-  Sweeping : Runs PoCs vs hidden tests in sandbox
+  Sweeping : Checks AI Tester verdict + codeHash
+  Sweeping : Runs valid models vs hidden tests in sandbox
   Sweeping : Signs scores, discards plaintext
 }
 
@@ -29,6 +37,7 @@ state Settled {
   Settled : Highest score wins\n(tie: earliest block number)
   Settled : Bounty paid to winner
   Settled : ReputationDelta written (ERC-8004)
+  Settled : Invalid submissions decremented
 }
 
 state Expired {

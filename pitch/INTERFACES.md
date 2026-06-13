@@ -2,13 +2,16 @@
 
 > **Status: PROPOSAL. Veto anything.** This pins down the BigPicture design so the
 > three of us can build in parallel without blocking each other. Where BigPicture
-> ([`/BigPicture.md`](../BigPicture.md)) left gaps `(?)`, I made an opinionated call
+> ([`BigPicture.md`](./BigPicture.md)) left gaps `(?)`, I made an opinionated call
 > and **marked it 🔧 PROPOSED** — push back in the thread, don't silently assume yours.
 >
-> This doc supersedes the trust model in [`README.md`](./README.md) / [`PITCH.md`](./PITCH.md),
-> which describe the older vuln-audit + TEE-enclave product. **We are building the
-> trading-bot product:** agents *build* a Uniswap LP model, graded on backtest data,
-> submitted as an encrypted CID + an AI attestation. No enclave.
+> **We are building the trading-bot product:** agents *build* a Uniswap LP model, graded
+> on backtest data, submitted as an encrypted CID. [`README.md`](./README.md) /
+> [`PITCH.md`](./PITCH.md) now describe this same product. Two confidential services:
+> a **confidential scorer enclave** (runs the hidden backtest tests at the deadline) and
+> a **confidential AI tester** (a Chainlink API endpoint that validates code legitimacy
+> and signs a valid/invalid verdict on-chain). The AI attestation in §2 below is the
+> agent's own self-claim; the AI *tester* is the independent confidential validator.
 
 ---
 

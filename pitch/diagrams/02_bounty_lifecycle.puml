@@ -7,39 +7,51 @@ title Honeycomb — End-to-End Bounty Flow
 
 actor Requester as R
 participant "BountyEscrow.sol\n(Sepolia)" as C
-participant "Honest Agent\n(Claude auditor)" as A1
-participant "Cheater Agent\n(hardcoded PoCs)" as A2
+participant "Google\nBigQuery" as BQ
+participant "Honest Agent\n(Claude builder)" as A1
+participant "Cheater Agent\n(hardcoded to public set)" as A2
+participant "AI Tester\n(Chainlink API)" as V
 participant "Confidential Scorer\n(Go enclave)" as T
 participant "Chainlink\nAutomation" as L
 
 == Setup ==
 T -> C : register enclave pubkey\n(attestation verified once)
-R -> C : postBounty{value}\n(target v4 hook, deadline)
-C -->> A1 : BountyPosted
-C -->> A2 : BountyPosted
+R -> C : postBounty{value}\n(pair, public dataset CID, deadline)
+C -> C : emit JobDeployed
+C -->> BQ : event indexed
+
+== Discovery ==
+A1 -> BQ : poll for open jobs
+A2 -> BQ : poll for open jobs
 note over A1, A2
-  Both pull: target Uniswap v4 hook
-  + 5-10 PUBLIC Foundry tests (local feedback)
+  Both pull: target pair + PUBLIC dataset/tests
+  (local self-scoring feedback)
 end note
 
 == Work window (sealed) ==
-A1 -> A1 : audit loop, validate\nlocally vs public tests
-A1 -> C : register + submit\nEncrypt(findings+PoCs, enclave key)
-A2 -> C : register + submit\nEncrypt(fake hardcoded PoCs)
-C -->> T : Submitted events
-T -> T : decrypt INSIDE enclave, queue\nReply: "valid, receipt #N"\nNO SCORES LEAKED
-note right of T
-  Sealed scoring blocks the oracle attack:
-  no score feedback = no gradient to
-  overfit the hidden test set.
+A1 -> A1 : build LP model, self-score\nlocally vs public dataset
+A1 -> V : send Encrypt(model code)\nfor legitimacy check
+V -> V : decrypt in TEE, judge:\nreal model, NOT hardcoded?
+V -> C : write "valid + codeHash" for A1
+A1 -> C : submit Encrypt(model, scorer key)\nas CID + wrappedKey
+
+A2 -> V : send Encrypt(hardcoded code)
+V -> C : write "INVALID" for A2
+A2 -> C : submit anyway (CID)
+note right of V
+  AI Tester is just an API endpoint running in a TEE.
+  It signs a valid/invalid entry on-chain. Invalid =>
+  scorer decrements reputation instead of paying.
 end note
 
 == Deadline sweep ==
 L -> T : deadline reached
-T -> T : run each submission in sandbox\nvs ~50 PRIVATE tests on a live v4 pool.\nScore = # PoCs that actually trigger\nthe planted vulns. Discard plaintext.
-T -> C : settle(winner=A1, share=100%,\nscoresRoot) signed by enclave key
+C -> T : queue all submission CIDs
+T -> T : decrypt each in sandbox, run\nvs ~50 PRIVATE backtest tests.\nCheck AI Tester verdict + codeHash.\nScore valid models; discard plaintext.
+T -> C : settle(winner=A1, score, scoresRoot)\nsigned by enclave key
 C -> A1 : pay bounty
-C -->> C : emit Settled + ReputationDelta\n(A1 up, A2 zero)
-C -->> R : result: 3/3 vulns found,\nattestation verifiable on-chain
+C -->> C : emit Settled + ReputationDelta\n(A1 up, A2 down — was invalid)
+C -->> BQ : settlement indexed
+C -->> R : result: winner + verifiable attestation
 
 @enduml
