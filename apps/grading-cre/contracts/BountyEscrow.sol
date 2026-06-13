@@ -2,30 +2,32 @@
 pragma solidity 0.8.24;
 
 // ============================================================================
-// BountyEscrow — create / fund / settle a graded bounty (Honeycomb)
+// BountyEscrow — ERC-8183 Agentic Commerce job escrow (Honeycomb contest profile)
 // ============================================================================
 //
-// Maker side:
-//   createBounty(bountyId, reward, deadline, testsHash, specCid)
-//     • pulls `reward` USDC into escrow (maker must approve() first)
-//     • commits `testsHash` = hash of the PRIVATE tests + rubric (hidden; the
-//       grading enclave later verifies it graded against this exact commitment)
-//     • `specCid` points at the PUBLIC spec/tests (IPFS)
+// One ERC-8183 Job per bounty. Roles:
+//   • client    = the bounty maker (funds the job)
+//   • provider  = the winning agent's wallet (set at completion)
+//   • evaluator = the CRE KeystoneForwarder (settles via onReport)
 //
-// Settlement side (decided off-chain from two attested TEE jobs):
-//   • execution grading — run code against the datasets → score (+ attestation)
-//   • AI attestation    — LLM judges valid / not hardcoded → valid (+ attestation)
-//   The grader POSTs the result to a CRE workflow's HTTP trigger; the workflow
-//   ABI-encodes it and writes here via the KeystoneForwarder:
+// The winner is an ERC-8004 agent: settlement carries the winner's `agentId`,
+// and the reward is paid to `IdentityRegistry.getAgentWallet(agentId)`.
 //
-//     CRE workflow --(report)--> KeystoneForwarder --(onReport)--> BountyEscrow
+// Reward token: an owner-settable DEFAULT (`rewardToken`) — start with MockUSDC,
+// switch to real USDC later via setRewardToken(). Each bounty SNAPSHOTS the token
+// at creation (Job.token), so changing the default never breaks already-funded
+// escrows.
 //
-//   onReport records the settlement and, if the winner is valid, AUTO-PAYS the
-//   USDC reward to the winner.
+// CONTEST-PROFILE deviations from vanilla ERC-8183 (documented on purpose):
+//   1. `provider` is resolved at completion (not set by the client up front).
+//   2. The evaluator completes/rejects directly from `Funded` (no provider
+//      `submit` step); contest entries are tracked off-chain.
+//   3. create + fund are collapsed into `createBounty`.
 //
-// Forwarder (Ethereum Sepolia): simulation Mock 0x15fC6ae953E024d975e77382eEeC56A9101f9F88,
-// production 0xF8344CFd5c43616a4366C34E3EEE75af79a74482. The decoded settlement
-// tuple MUST match the workflow's encodeAbiParameters call.
+// ERC-8004 (Sepolia): Identity Registry 0x8004A818BFB912233c491871b3d84c89A494BD9e.
+// Forwarder (Sepolia): simulation Mock 0x15fC6ae953E024d975e77382eEeC56A9101f9F88,
+// production 0xF8344CFd5c43616a4366C34E3EEE75af79a74482.
+// The onReport settlement tuple MUST match the CRE workflow's encodeAbiParameters.
 // ============================================================================
 
 interface IReceiver {
@@ -37,152 +39,196 @@ interface IERC20 {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
+/// @notice Minimal slice of the ERC-8004 Identity Registry we depend on.
+interface IIdentityRegistry {
+    function getAgentWallet(uint256 agentId) external view returns (address);
+}
+
 contract BountyEscrow is IReceiver {
-    struct Bounty {
-        address maker;
-        uint256 reward; // USDC (6 decimals) locked in escrow
-        uint64 deadline; // contest end (drives the CRON trigger)
+    enum JobStatus {
+        Open,
+        Funded,
+        Submitted,
+        Completed,
+        Rejected,
+        Expired
+    }
+
+    struct Job {
+        // --- ERC-8183 fields ---
+        uint256 id;
+        address client; // bounty maker
+        address provider; // winner wallet, set at completion
+        address evaluator; // CRE KeystoneForwarder
+        string description;
+        uint256 budget; // reward escrowed (set to 0 once funds leave)
+        uint64 expiredAt; // contest deadline
+        JobStatus status;
+        address hook; // unused (0) in this profile
+        // --- Honeycomb extension fields ---
+        address token; // reward token snapshot for this bounty
         bytes32 testsHash; // commitment to PRIVATE tests + rubric
         string specCid; // PUBLIC spec / tests (IPFS)
-        bool settled;
+        uint256 winnerAgentId; // ERC-8004 agentId of the winner
+        uint8 score; // winning score, 0..100
+        bytes32 reason; // attestation / validation responseHash
     }
 
-    struct Settlement {
-        address winner;
-        uint256 score; // execution score (scaled integer)
-        bool valid; // AI attestor verdict: valid and not hardcoded
-        bytes32 scoreAttestationHash; // execution-enclave attestation digest
-        bytes32 validityAttestationHash; // Confidential AI Attester attestation digest
-        uint256 paidOut; // USDC released to the winner
-        uint256 timestamp;
-    }
+    address public rewardToken; // DEFAULT reward token for new bounties (settable)
+    IIdentityRegistry public immutable identityRegistry; // ERC-8004
+    address public immutable forwarder; // == evaluator for CRE-settled jobs
+    address public owner;
 
-    address public immutable forwarder;
-    IERC20 public immutable rewardToken; // e.g. Sepolia USDC
+    uint256 public nextJobId = 1;
+    mapping(uint256 => Job) public jobs;
 
-    mapping(bytes32 => Bounty) public bountyById;
-    mapping(bytes32 => Settlement) public settlementByBounty;
-
-    event BountyCreated(
-        bytes32 indexed bountyId,
-        address indexed maker,
-        uint256 reward,
-        uint64 deadline,
+    event JobCreated(
+        uint256 indexed jobId,
+        address indexed client,
+        address indexed evaluator,
+        address token,
+        uint256 budget,
+        uint64 expiredAt,
         bytes32 testsHash,
         string specCid
     );
-    event BountySettled(
-        bytes32 indexed bountyId, address indexed winner, uint256 score, bool valid, uint256 paidOut
+    event JobCompleted(
+        uint256 indexed jobId,
+        uint256 indexed winnerAgentId,
+        address provider,
+        uint8 score,
+        bytes32 reason,
+        uint256 paidOut
     );
-    event BountyReclaimed(bytes32 indexed bountyId, address indexed maker, uint256 amount);
+    event JobRejected(uint256 indexed jobId, address indexed rejector, bytes32 reason, uint256 refunded);
+    event JobExpired(uint256 indexed jobId, uint256 refunded);
+    event RewardTokenSet(address indexed token);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     error UnauthorizedForwarder(address caller);
+    error NotOwner(address caller);
 
-    modifier onlyForwarder() {
-        if (msg.sender != forwarder) revert UnauthorizedForwarder(msg.sender);
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner(msg.sender);
         _;
     }
 
-    constructor(address forwarder_, address rewardToken_) {
+    constructor(address forwarder_, address rewardToken_, address identityRegistry_) {
         forwarder = forwarder_;
-        rewardToken = IERC20(rewardToken_);
+        rewardToken = rewardToken_;
+        identityRegistry = IIdentityRegistry(identityRegistry_);
+        owner = msg.sender;
     }
 
-    // --- Maker: create + fund ------------------------------------------------
+    // --- owner: configuration ------------------------------------------------
+
+    /// @notice Set the DEFAULT reward token for FUTURE bounties (e.g. switch
+    ///         MockUSDC -> real USDC). Existing bounties keep their snapshotted token.
+    function setRewardToken(address token) external onlyOwner {
+        rewardToken = token;
+        emit RewardTokenSet(token);
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+    }
+
+    // --- client: create + fund (Open -> Funded) ------------------------------
 
     function createBounty(
-        bytes32 bountyId,
-        uint256 reward,
-        uint64 deadline,
+        uint256 budget,
+        uint64 expiredAt,
         bytes32 testsHash,
         string calldata specCid
-    ) external {
-        require(bountyById[bountyId].maker == address(0), "exists");
-        require(reward > 0 && deadline > block.timestamp, "bad params");
-
-        bountyById[bountyId] = Bounty({
-            maker: msg.sender,
-            reward: reward,
-            deadline: deadline,
+    ) external returns (uint256 jobId) {
+        require(budget > 0 && expiredAt > block.timestamp, "bad params");
+        address token = rewardToken; // snapshot
+        jobId = nextJobId++;
+        jobs[jobId] = Job({
+            id: jobId,
+            client: msg.sender,
+            provider: address(0),
+            evaluator: forwarder,
+            description: specCid,
+            budget: budget,
+            expiredAt: expiredAt,
+            status: JobStatus.Funded,
+            hook: address(0),
+            token: token,
             testsHash: testsHash,
             specCid: specCid,
-            settled: false
+            winnerAgentId: 0,
+            score: 0,
+            reason: bytes32(0)
         });
-
-        require(rewardToken.transferFrom(msg.sender, address(this), reward), "fund failed");
-        emit BountyCreated(bountyId, msg.sender, reward, deadline, testsHash, specCid);
+        require(IERC20(token).transferFrom(msg.sender, address(this), budget), "fund failed");
+        emit JobCreated(jobId, msg.sender, forwarder, token, budget, expiredAt, testsHash, specCid);
     }
 
-    // --- Settlement: record winner + auto-payout -----------------------------
+    // --- evaluator (CRE via forwarder): settle (Funded -> Completed/Rejected) -
 
     /// @inheritdoc IReceiver
-    function onReport(bytes calldata, bytes calldata report) external onlyForwarder {
-        (
-            bytes32 bountyId,
-            address winner,
-            uint256 score,
-            bool valid,
-            bytes32 scoreAttestationHash,
-            bytes32 validityAttestationHash
-        ) = abi.decode(report, (bytes32, address, uint256, bool, bytes32, bytes32));
+    function onReport(bytes calldata, bytes calldata report) external {
+        if (msg.sender != forwarder) revert UnauthorizedForwarder(msg.sender);
 
-        Bounty storage b = bountyById[bountyId];
-        require(b.maker != address(0), "no bounty");
-        require(!b.settled, "settled");
-        b.settled = true;
+        (uint256 jobId, uint256 winnerAgentId, bool valid, uint8 score, bytes32 reason) =
+            abi.decode(report, (uint256, uint256, bool, uint8, bytes32));
 
-        // Funds ALWAYS move on settlement: pay a VALID, non-zero winner; otherwise
-        // refund the maker. Settled bounties are not reclaimable, so without this
-        // branch a no-valid-winner settlement would strand the reward forever.
-        uint256 paidOut = 0;
-        uint256 amount = b.reward;
-        if (amount > 0) {
-            b.reward = 0;
-            if (valid && winner != address(0)) {
-                paidOut = amount;
-                require(rewardToken.transfer(winner, amount), "payout failed");
-            } else {
-                require(rewardToken.transfer(b.maker, amount), "refund failed");
-            }
+        Job storage j = jobs[jobId];
+        require(j.client != address(0), "no job");
+        require(j.status == JobStatus.Funded, "not funded");
+
+        uint256 amount = j.budget;
+        j.budget = 0;
+        j.winnerAgentId = winnerAgentId;
+        j.score = score;
+        j.reason = reason;
+
+        // Resolve the winner's wallet from the ERC-8004 Identity Registry.
+        address winnerWallet =
+            (valid && winnerAgentId != 0) ? identityRegistry.getAgentWallet(winnerAgentId) : address(0);
+
+        // Funds ALWAYS move: pay a valid, resolvable winner; otherwise refund the client.
+        if (winnerWallet != address(0)) {
+            j.provider = winnerWallet;
+            j.status = JobStatus.Completed;
+            if (amount > 0) require(IERC20(j.token).transfer(winnerWallet, amount), "payout failed");
+            emit JobCompleted(jobId, winnerAgentId, winnerWallet, score, reason, amount);
+        } else {
+            j.status = JobStatus.Rejected;
+            if (amount > 0) require(IERC20(j.token).transfer(j.client, amount), "refund failed");
+            emit JobRejected(jobId, forwarder, reason, amount);
         }
-
-        settlementByBounty[bountyId] = Settlement({
-            winner: winner,
-            score: score,
-            valid: valid,
-            scoreAttestationHash: scoreAttestationHash,
-            validityAttestationHash: validityAttestationHash,
-            paidOut: paidOut,
-            timestamp: block.timestamp
-        });
-
-        emit BountySettled(bountyId, winner, score, valid, paidOut);
     }
 
-    // --- Maker: reclaim if never settled -------------------------------------
+    // --- client: reclaim after expiry if never settled (Funded -> Expired) ----
 
-    /// @notice After the deadline, an unsettled bounty's reward returns to the maker.
-    function reclaim(bytes32 bountyId) external {
-        Bounty storage b = bountyById[bountyId];
-        require(msg.sender == b.maker, "not maker");
-        require(!b.settled && block.timestamp > b.deadline, "not reclaimable");
-
-        uint256 amount = b.reward;
+    function claimRefund(uint256 jobId) external {
+        Job storage j = jobs[jobId];
+        require(j.status == JobStatus.Funded, "not refundable");
+        require(block.timestamp > j.expiredAt, "not expired");
+        uint256 amount = j.budget;
         require(amount > 0, "nothing");
-        b.reward = 0;
-        b.settled = true;
-
-        require(rewardToken.transfer(b.maker, amount), "refund failed");
-        emit BountyReclaimed(bountyId, b.maker, amount);
+        j.budget = 0;
+        j.status = JobStatus.Expired;
+        require(IERC20(j.token).transfer(j.client, amount), "refund failed");
+        emit JobExpired(jobId, amount);
     }
 
-    // --- Views ---------------------------------------------------------------
+    // --- views ---------------------------------------------------------------
 
-    function winnerOf(bytes32 bountyId) external view returns (address) {
-        return settlementByBounty[bountyId].winner;
+    function getJob(uint256 jobId) external view returns (Job memory) {
+        return jobs[jobId];
     }
 
-    function isSettled(bytes32 bountyId) external view returns (bool) {
-        return bountyById[bountyId].settled;
+    /// @notice The winning agent's wallet (zero until completed).
+    function winnerWalletOf(uint256 jobId) external view returns (address) {
+        return jobs[jobId].provider;
+    }
+
+    function isSettled(uint256 jobId) external view returns (bool) {
+        JobStatus s = jobs[jobId].status;
+        return s == JobStatus.Completed || s == JobStatus.Rejected || s == JobStatus.Expired;
     }
 }

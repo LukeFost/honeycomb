@@ -78,28 +78,33 @@ async function attestValidity(filename: string, code: string) {
 // ---------------------------------------------------------------------------
 const path = process.argv[2];
 if (!path) {
-	console.error("usage: bun grader/grade.ts <submission-file> [bountyId] [winner]");
+	console.error("usage: bun grader/grade.ts <submission-file> [jobId] [winnerAgentId]");
 	process.exit(1);
 }
-const bountyId = process.argv[3] ?? "uniswap-lp-trading-bot-round-1";
-const winner = process.argv[4] ?? "0x0000000000000000000000000000000000000001";
+const jobId = Number(process.argv[3] ?? 1); // ERC-8183 job id
+const winnerAgentId = Number(process.argv[4] ?? 22); // ERC-8004 agentId
 const code = readFileSync(path, "utf8");
 const filename = path.split("/").pop()!;
 
 const exec = executionGrade(code);
 const validity = await attestValidity(filename, code);
+const score = Math.round(exec.score / 100); // STUB 0..10000 -> 0..100
 
 console.error(
-	`[grader] exec(STUB) score=${exec.score}  validity(REAL) valid=${validity.valid} reason="${validity.reason}" inferenceId=${validity.inferenceId}`,
+	`[grader] exec(STUB) score0_100=${score}  validity(REAL) valid=${validity.valid} reason="${validity.reason}" inferenceId=${validity.inferenceId}`,
 );
+// Settlement-shaped payload posted to the CRE workflow's HTTP trigger.
+// reason = the REAL AI-attestor response_digest (the validity attestation).
+// (The execution attestation will become a separate ERC-8004 Validation entry.)
 console.log(
 	JSON.stringify(
 		{
-			bountyId,
+			jobId,
 			status: "completed",
-			winner,
-			execution: { score: exec.score, attestation: { digest: exec.attestationDigest } },
-			validity: { valid: validity.valid, attestation: { digest: validity.attestationDigest } },
+			winnerAgentId,
+			valid: validity.valid,
+			score,
+			reason: validity.attestationDigest,
 		},
 		null,
 		2,

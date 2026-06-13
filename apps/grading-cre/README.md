@@ -1,118 +1,93 @@
-# Honeycomb Grading — CRE Workflow (simplest version)
+# Honeycomb Grading — CRE (end-to-end on Sepolia)
 
-The on-chain settlement half of Honeycomb's bounty grading. A grader (TEE enclave
-/ MCP) scores a bounty's submissions and POSTs the result to this CRE workflow's
-HTTP trigger; the workflow ABI-encodes the winner + TEE attestation digest and
-writes it on-chain to `BountyEscrow` through the KeystoneForwarder.
+A bounty is an **ERC-8183 Job**: the maker funds USDC escrow; a grader scores each
+submission (stub) + **attests validity with a real TEE LLM** (Chainlink Confidential
+AI Attester); a **CRE** workflow settles it on-chain through the KeystoneForwarder;
+the escrow pays the winning **ERC-8004 agent**.
 
 ```
-Grader (TEE / MCP)
-   │  POST { bountyId, status, winner, score, attestation.digest }
-   ▼
-CRE workflow (grading-workflow/main.ts)   ← HTTP trigger
-   │  parse → ABI-encode (bytes32,address,uint256,bytes32)
-   │  runtime.report(...) → EVMClient.writeReport(...)
-   ▼  (KeystoneForwarder)
-contracts/BountyEscrow.sol   ← onReport, onlyForwarder
-   • settlementByBounty[keccak256(bountyId)] = {winner, score, attestationHash, ...}
-   • winnerOf(bountyId) / isSettled(bountyId)
+maker createBounty (USDC escrow)
+agent registered (ERC-8004 Identity → agentId)
+grader: stub score + REAL AI validity attestation  →  settlement payload
+CRE workflow (HTTP trigger) → KeystoneForwarder → BountyEscrow.onReport
+   valid winner → pay agent's wallet | else → refund maker
 ```
 
-This is intentionally minimal: **no secrets, no Confidential HTTP, no x402, no
-key-reveal yet** — it mirrors the proven pattern from
-`chainlink-confidential-ai-attester-demo`. The sealed-score / CRE-Vault key-reveal
-mechanism and incremental grading are planned follow-ups.
+> Excluded from the honeycomb pnpm/turbo workspace (uses **bun** + the CRE WASM
+> toolchain + **foundry**). Run all commands from this directory.
 
-## Two TEE jobs per submission (`grader/grade.ts`)
+## Deployed (Ethereum Sepolia)
 
-The winner is decided off-chain from two **attested** jobs — kept separate on
-purpose, because only one of them is the AI Attester:
-
-| Job | What | Tool | Status here |
-|-----|------|------|-------------|
-| `executionGrade()` | run the code against the test datasets → **score** | a compute enclave (Google Confidential Space) — *not* the LLM Attester | **STUB** (placeholder score), clearly marked |
-| `attestValidity()` | LLM judges code valid / not hardcoded → **verdict** | Chainlink Confidential AI Attester (`/v1/inference`, `qwen3.6`) | **REAL** |
-
-```bash
-# needs INFERENCE_API_KEY_VAR (real key) for the validity call
-INFERENCE_API_KEY_VAR=<key> bun grader/grade.ts grader/submissions/clean.py
-INFERENCE_API_KEY_VAR=<key> bun grader/grade.ts grader/submissions/hardcoded.py
-# → prints a grading-callback JSON; pipe it to the workflow:
-bun grader/grade.ts grader/submissions/clean.py > /tmp/cb.json
-CRE_TARGET=staging-settings cre workflow simulate grading-workflow \
-  --non-interactive --trigger-index 0 --http-payload /tmp/cb.json
-```
-
-Verified: `clean.py` → `valid=true`, `hardcoded.py` → `valid=false`, each with a
-real TEE `response_digest` as the validity attestation.
-
-> Excluded from the honeycomb pnpm/turbo workspace (it uses **bun** + the CRE WASM
-> toolchain). Run all commands from this directory.
-
-## Prerequisites
-
-- CRE CLI (`cre`) ≥ v1.19.0
-- Bun ≥ 1.2.21
-- Foundry (`forge`, `cast`) — only for deploying/querying `BountyEscrow`
-- A funded Ethereum Sepolia wallet — only for `--broadcast`
+| | Address |
+|---|---|
+| BountyEscrow | `0x12eA1Cc33445F1A1F75555d7B26255f25D87B479` |
+| MockUSDC (6dp) | `0x3211C5E4B4d57B673d67a976699121667f419e17` |
+| ERC-8004 Identity Registry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
+| KeystoneForwarder (sim, `--broadcast`) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88` |
 
 ## Setup
 
 ```bash
-cd grading-workflow
-bun install      # runs `bun x cre-setup` (WASM toolchain) via postinstall
-cd ..
+cd grading-workflow && bun install && cd ..      # CRE deps + WASM toolchain
+forge build                                       # contracts
+# .env at repo root needs: SEP_PRIVATE_KEY, INFERENCE_API_KEY_VAR
+set -a; . ../../../.env; set +a
+export CRE_ETH_PRIVATE_KEY="${SEP_PRIVATE_KEY#0x}" CRE_TARGET=staging-settings
 ```
 
-## Scenario 1 — local simulation (no keys needed)
-
-Replays the recorded grading callback into the HTTP trigger. Run from this dir
-(the one with `project.yaml`):
+## Run the full loop
 
 ```bash
-CRE_TARGET=staging-settings cre workflow simulate grading-workflow \
-  --non-interactive \
-  --trigger-index 0 \
-  --http-payload ./simulation/grading-callback.json
+# 1. (once) register a solver agent → prints an agentId. Wallet = your sender.
+cast send 0x8004A818BFB912233c491871b3d84c89A494BD9e "register(string)" \
+  "https://honeycomb.dev/agents/my-solver" --private-key $SEP_PRIVATE_KEY \
+  --rpc-url https://ethereum-sepolia-rpc.publicnode.com
+
+# 2. open + fund a bounty (50 mUSDC, +1h) → prints jobId
+bun maker/create-bounty.ts 50 1 maker/bounties/uniswap-lp-trading-bot
+
+# 3. grade a submission: stub score + REAL AI attestation → settlement payload
+bun grader/grade.ts grader/submissions/clean.py <jobId> <agentId> > /tmp/settle.json
+
+# 4. settle on-chain (CRE → forwarder → escrow pays the winner)
+cre workflow simulate grading-workflow --non-interactive --trigger-index 0 \
+  --http-payload /tmp/settle.json --broadcast
 ```
 
-The on-chain write is skipped gracefully (logged) without `--broadcast`.
+Verify:
 
-## Scenario 2 — real on-chain write to Sepolia
+```bash
+ESC=0x12eA1Cc33445F1A1F75555d7B26255f25D87B479
+cast call $ESC "isSettled(uint256)(bool)" <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
+cast call $ESC "winnerWalletOf(uint256)(address)" <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
+```
 
-1. Deploy `BountyEscrow` with the **MockKeystoneForwarder** (what `--broadcast`
-   writes through):
+`hardcoded.py` instead of `clean.py` → attestor returns `valid=false` → escrow
+refunds the maker instead of paying.
 
-   ```bash
-   forge create contracts/BountyEscrow.sol:BountyEscrow --broadcast \
-     --rpc-url https://ethereum-sepolia-rpc.publicnode.com \
-     --private-key $CRE_ETH_PRIVATE_KEY \
-     --constructor-args 0x15fC6ae953E024d975e77382eEeC56A9101f9F88
-   ```
+## Local checks (no chain)
 
-2. Put the deployed address in `grading-workflow/config.staging.json`
-   (`consumerAddress`), set `CRE_ETH_PRIVATE_KEY` (raw 64-hex, no `0x`), then:
+```bash
+forge test                                                       # contract incl. payout/refund
+cre workflow simulate grading-workflow --non-interactive \
+  --trigger-index 0 --http-payload ./simulation/grading-callback.json   # workflow only
+```
 
-   ```bash
-   CRE_TARGET=staging-settings cre workflow simulate grading-workflow \
-     --non-interactive --trigger-index 0 \
-     --http-payload ./simulation/grading-callback.json --broadcast
-   ```
+## Switching to real USDC
 
-3. Verify (note `bountyId` is `keccak256` of the string id):
+The reward token is per-bounty (snapshotted) with an owner-settable default:
 
-   ```bash
-   cast call <ESCROW> "isSettled(bytes32)(bool)" \
-     $(cast keccak "uniswap-lp-trading-bot-round-1") \
-     --rpc-url https://ethereum-sepolia-rpc.publicnode.com
-   ```
+```bash
+cast send 0x12eA1Cc33445F1A1F75555d7B26255f25D87B479 "setRewardToken(address)" <USDC> \
+  --private-key $SEP_PRIVATE_KEY --rpc-url https://ethereum-sepolia-rpc.publicnode.com
+```
 
-## KeystoneForwarder addresses (Ethereum Sepolia)
+New bounties use the new token; already-funded ones keep theirs.
 
-| Use        | Address                                      |
-|------------|----------------------------------------------|
-| Simulation | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88` (Mock, with `--broadcast`) |
-| Production | `0xF8344CFd5c43616a4366C34E3EEE75af79a74482` (KeystoneForwarder) |
+## Stubs / simplifications (not production)
 
-Pass the forwarder matching how you write to the `BountyEscrow` constructor, or
-`onReport` reverts with `UnauthorizedForwarder`.
+- `grader/grade.ts` `executionGrade()` is a **STUB** (real scoring needs a compute
+  enclave + Uniswap data); `attestValidity()` is real.
+- HTTP trigger is open (`authorizedKeys: []`) — anyone can post a settlement.
+- Reward token is `MockUSDC` (open mint). Deferred: reputation, CRON deadline
+  trigger / sealed reveal, ERC-8004 Validation Registry.

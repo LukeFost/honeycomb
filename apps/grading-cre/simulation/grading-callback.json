@@ -1,17 +1,8 @@
 {
-  "bountyId": "uniswap-lp-trading-bot-round-1",
+  "jobId": 1,
   "status": "completed",
-  "winner": "0x0000000000000000000000000000000000000001",
-  "execution": {
-    "score": 9450,
-    "attestation": {
-      "digest": "1111111111111111111111111111111111111111111111111111111111111111"
-    }
-  },
-  "validity": {
-    "valid": true,
-    "attestation": {
-      "digest": "0a0124911560a2236e432d30c3e2a90b0666f4c84b40bf10ba01960595c6ecea"
-    }
-  }
+  "winnerAgentId": 22,
+  "valid": true,
+  "score": 94,
+  "reason": "0a0124911560a2236e432d30c3e2a90b0666f4c84b40bf10ba01960595c6ecea"
 }

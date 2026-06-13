@@ -33,10 +33,7 @@ import {
 import {
 	bytesToString,
 	encodeAbiParameters,
-	getAddress,
-	keccak256,
 	parseAbiParameters,
-	stringToHex,
 	toHex,
 	type Hex,
 } from "viem";
@@ -57,22 +54,22 @@ export type Config = {
 };
 
 // --- Grading callback (only the fields this workflow uses) ------------------
-// See simulation/grading-callback.json. The winner is decided off-chain from two
-// attested TEE jobs: `execution` (run the tests → score) and `validity`
-// (AI attestor → valid / not hardcoded). Each carries its own attestation digest.
+// See simulation/grading-callback.json. The off-chain grader picks the winner
+// (an ERC-8004 agentId) from the two attested TEE jobs — execution grading
+// (score) and AI validity attestation — and posts the settlement here.
 type GradingCallback = {
-	bountyId?: string; // human/string id; hashed to bytes32 on-chain
+	jobId?: number | string; // ERC-8183 job id (uint256)
 	status?: string; // "completed" | "failed"
-	winner?: string; // winning agent / submission payout address
-	execution?: { score?: number; attestation?: { digest?: string } }; // STUB grader
-	validity?: { valid?: boolean; attestation?: { digest?: string } }; // AI attestor
+	winnerAgentId?: number | string; // ERC-8004 agentId of the winner
+	valid?: boolean; // AI attestor verdict: valid and not hardcoded
+	score?: number; // winning execution score, 0..100
+	reason?: string; // attestation / validation responseHash (bytes32 hex)
 };
 
 // ABI shape written on-chain and decoded by BountyEscrow.onReport():
-//   (bytes32 bountyId, address winner, uint256 score, bool valid,
-//    bytes32 scoreAttestationHash, bytes32 validityAttestationHash)
+//   (uint256 jobId, uint256 winnerAgentId, bool valid, uint8 score, bytes32 reason)
 const SETTLEMENT_ABI =
-	"bytes32 bountyId, address winner, uint256 score, bool valid, bytes32 scoreAttestationHash, bytes32 validityAttestationHash";
+	"uint256 jobId, uint256 winnerAgentId, bool valid, uint8 score, bytes32 reason";
 
 const ZERO_BYTES32 = "0x".padEnd(66, "0") as Hex;
 
@@ -93,7 +90,7 @@ export const onGradingResult = (runtime: Runtime<Config>, payload: HTTPPayload):
 	// 1. Decode the HTTP body bytes into the callback object.
 	const callback = JSON.parse(bytesToString(payload.input)) as GradingCallback;
 	runtime.log(
-		`Grading callback received: bountyId=${callback.bountyId ?? "unknown"} status=${
+		`Grading callback received: jobId=${callback.jobId ?? "unknown"} status=${
 			callback.status ?? "unknown"
 		}`,
 	);
@@ -102,35 +99,30 @@ export const onGradingResult = (runtime: Runtime<Config>, payload: HTTPPayload):
 	if (callback.status !== "completed") {
 		runtime.log(`Status is not "completed"; skipping on-chain write.`);
 		return JSON.stringify({
-			bountyId: callback.bountyId ?? null,
+			jobId: callback.jobId ?? null,
 			status: callback.status ?? null,
 			action: "skipped",
 		});
 	}
 
-	// 3. Resolve the settlement fields from the two attested jobs.
-	const bountyId = keccak256(stringToHex(callback.bountyId ?? ""));
-	const winner = getAddress(callback.winner ?? "0x0000000000000000000000000000000000000000");
-	const score = BigInt(callback.execution?.score ?? 0);
-	const valid = callback.validity?.valid === true;
-	const scoreAttestationHash = callback.execution?.attestation?.digest
-		? toBytes32(callback.execution.attestation.digest)
-		: ZERO_BYTES32;
-	const validityAttestationHash = callback.validity?.attestation?.digest
-		? toBytes32(callback.validity.attestation.digest)
-		: ZERO_BYTES32;
+	// 3. Resolve the settlement fields.
+	const jobId = BigInt(callback.jobId ?? 0);
+	const winnerAgentId = BigInt(callback.winnerAgentId ?? 0);
+	const valid = callback.valid === true;
+	const rawScore = Number(callback.score ?? 0);
+	const score = Math.max(0, Math.min(100, Math.round(rawScore))); // clamp to uint8 0..100
+	const reason = callback.reason ? toBytes32(callback.reason) : ZERO_BYTES32;
 	runtime.log(
-		`Winner=${winner} score=${score} valid=${valid} scoreAtt=${scoreAttestationHash} validityAtt=${validityAttestationHash}`,
+		`jobId=${jobId} winnerAgentId=${winnerAgentId} valid=${valid} score=${score} reason=${reason}`,
 	);
 
-	// 4. ABI-encode the settlement: (bytes32, address, uint256, bool, bytes32, bytes32).
+	// 4. ABI-encode the settlement: (uint256, uint256, bool, uint8, bytes32).
 	const encodedPayload = encodeAbiParameters(parseAbiParameters(SETTLEMENT_ABI), [
-		bountyId,
-		winner,
-		score,
+		jobId,
+		winnerAgentId,
 		valid,
-		scoreAttestationHash,
-		validityAttestationHash,
+		score,
+		reason,
 	]);
 
 	// 5. Generate a signed report and write it on-chain. Guarded so the workflow
@@ -167,14 +159,12 @@ export const onGradingResult = (runtime: Runtime<Config>, payload: HTTPPayload):
 
 	// 6. Return a JSON summary.
 	return JSON.stringify({
-		bountyId: callback.bountyId ?? null,
-		bountyIdHash: bountyId,
+		jobId: jobId.toString(),
+		winnerAgentId: winnerAgentId.toString(),
 		status: callback.status,
-		winner,
-		score: score.toString(),
 		valid,
-		scoreAttestationHash,
-		validityAttestationHash,
+		score: score.toString(),
+		reason,
 		consumerAddress: runtime.config.consumerAddress,
 		chainSelectorName: runtime.config.chainSelectorName,
 		write,
