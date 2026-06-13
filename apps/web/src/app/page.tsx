@@ -9,9 +9,10 @@ import BountyBoard from "@/components/BountyBoard";
 
 export const dynamic = "force-dynamic";
 
-export default function Page() {
-  const snap = loadSnapshot();
-  const market = loadMarket();
+export default async function Page() {
+  // Server Component: read the live BigQuery-backed loaders directly. They share one
+  // round-trip via the promise-memoizing cache (loadMarket also awaits loadSnapshot).
+  const [snap, market] = await Promise.all([loadSnapshot(), loadMarket()]);
   const { agents, withReputation } = snap;
 
   return (

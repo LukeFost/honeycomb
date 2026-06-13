@@ -1,12 +1,12 @@
-// Server-only module: it reads the filesystem, so it can never be bundled into a client
-// component. Keep imports of this module inside Server Components / routes.
-import { num, bool } from "./csv";
-import { analysisDir, readCsv } from "./repoData";
-
-// Loads the materialized ERC-8004 trust snapshot (analysis/erc8004_trust.csv): the dashboard's
-// Directory renders these agents, and Layer-2 reputation (reputation.ts) uses each agent's
-// trust score as a cold-start prior. The CSV is the frozen output of the BigQuery pipeline
-// (see analysis/); /api/bigquery proves the same queries run live against mainnet on demand.
+// Server-only module: loads the Layer-1 ERC-8004 trust directory from the LIVE BigQuery
+// store (honeycomb.agent_trust), behind a short-TTL cache — it never touches the raw logs.
+// The Directory renders these agents, and Layer-2 reputation (reputation.ts) uses each
+// agent's trust score as a cold-start prior. The frozen analysis/erc8004_trust.csv is now
+// just the reference the view reproduces; /api/bigquery still proves the raw-log queries
+// run live against mainnet on demand. Keep imports of this module inside Server
+// Components / routes (never a client component).
+import { cached } from "./cache";
+import { queryAgentTrust, queryStoreMeta, type AgentTrustRow } from "./queries";
 
 export type TrustCategory = "organic" | "thin" | "sybil";
 
@@ -30,6 +30,8 @@ export type TrustAgent = {
 export type Snapshot = {
   agents: TrustAgent[];
   withReputation: number;
+  asOf: string | null; // newest event timestamp in the store (ISO)
+  asOfBlock: number | null;
 };
 
 function categorize(independentClients: number, flags: string): TrustCategory {
@@ -38,7 +40,7 @@ function categorize(independentClients: number, flags: string): TrustCategory {
   return "thin";
 }
 
-function splitServices(v: string): string[] {
+function splitServices(v: string | null): string[] {
   if (!v || v.toLowerCase() === "nan") return [];
   return v
     .split(",")
@@ -46,42 +48,40 @@ function splitServices(v: string): string[] {
     .filter(Boolean);
 }
 
-function cleanName(v: string | undefined): string | null {
+function cleanName(v: string | null): string | null {
   if (!v || v.toLowerCase() === "nan") return null;
   return v;
 }
 
-let cached: Snapshot | null = null;
+function toAgent(r: AgentTrustRow): TrustAgent {
+  const independentClients = Number(r.independent_clients);
+  const flags = r.flags ?? "";
+  return {
+    agentId: Number(r.agent_id),
+    name: cleanName(r.name),
+    avgScore: Number(r.avg_score),
+    trustScore: Number(r.trust_score),
+    trustMult: Number(r.trust_mult),
+    feedbackCount: Number(r.feedback_count),
+    uniqueClients: Number(r.unique_clients),
+    independentClients,
+    reviewerRing: Number(r.reviewer_ring),
+    x402: Boolean(r.x402_resolved),
+    services: splitServices(r.services),
+    agentUri: r.agent_uri ?? "",
+    flags,
+    category: categorize(independentClients, flags),
+  };
+}
 
-export function loadSnapshot(): Snapshot {
-  if (cached) return cached;
-  const dir = analysisDir();
-
-  const trustRows = readCsv(dir, "erc8004_trust.csv");
-
-  const agents: TrustAgent[] = trustRows
-    .map((r) => {
-      const independentClients = num(r.independent_clients);
-      const flags = r.flags ?? "";
-      return {
-        agentId: num(r.agent_id),
-        name: cleanName(r.name),
-        avgScore: num(r.avg_score),
-        trustScore: num(r.trust_score),
-        trustMult: num(r.trust_mult),
-        feedbackCount: num(r.feedback_count),
-        uniqueClients: num(r.unique_clients),
-        independentClients,
-        reviewerRing: num(r.reviewer_ring),
-        x402: bool(r.x402_resolved),
-        services: splitServices(r.services),
-        agentUri: r.agent_uri ?? "",
-        flags,
-        category: categorize(independentClients, flags),
-      };
-    })
-    .sort((a, b) => b.trustScore - a.trustScore || b.uniqueClients - a.uniqueClients);
-
-  cached = { agents, withReputation: agents.length };
-  return cached;
+/** Load the trust directory (cached ~TTL). Promise-memoized so concurrent readers share
+ *  one BigQuery round-trip. */
+export function loadSnapshot(): Promise<Snapshot> {
+  return cached("snapshot", async () => {
+    const [rows, meta] = await Promise.all([queryAgentTrust(), queryStoreMeta()]);
+    const agents = rows
+      .map(toAgent)
+      .sort((a, b) => b.trustScore - a.trustScore || b.uniqueClients - a.uniqueClients);
+    return { agents, withReputation: agents.length, asOf: meta.asOf, asOfBlock: meta.asOfBlock };
+  });
 }

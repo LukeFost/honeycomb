@@ -1,7 +1,10 @@
 # ERC-8004 + Honeycomb — BigQuery snapshot
 
-This directory is the **materialized data layer** the dashboard reads. The live queries and
-all extraction / scoring logic live in the web app:
+This directory is the **frozen reference snapshot** plus the **Layer-2 seeds**. The dashboard's
+**Layer-1 trust directory is now read live** from the `honeycomb.*` BigQuery store — the live
+`agent_trust` view reproduces `erc8004_trust.csv` below — while **Layer-2** (the bounty market)
+still reads the seed CSVs here. See [`../docs/bigquery-runbook.md`](../docs/bigquery-runbook.md).
+The live queries and all extraction / scoring logic live in the web app:
 
 - **Live BigQuery queries + registry constants (single source of truth):** `apps/web/src/lib/bq.ts`
 - **Live query API (dry-run + execute against mainnet):** `apps/web/src/app/api/bigquery/route.ts`
@@ -23,9 +26,10 @@ filtering by contract address does **not** reduce bytes scanned.
 
 ## Files
 
-**Layer 1 — global ERC-8004 trust (backs the dashboard's Directory):**
+**Layer 1 — global ERC-8004 trust (the frozen reference the live `honeycomb.agent_trust` view reproduces):**
 - `erc8004_trust.csv` — per-agent raw score, sybil-discounted trust score, signal breakdown,
-  flags, plus resolved name / services / x402.
+  flags, plus resolved name / services / x402. The dashboard reads this directory live from
+  BigQuery now; this CSV is the snapshot the view was validated against (105/105 agents match).
 
 **Layer 2 — Honeycomb bounty market (seed star-schema + production view):**
 - `honeycomb_agents.csv`, `honeycomb_bounties.csv`, `honeycomb_submissions.csv`,

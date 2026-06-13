@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import path from "node:path";
 import { liveQueries, WINDOW } from "@/lib/bq";
+import { findKey } from "@/lib/bqClient";
 
 // Live BigQuery proxy: runs the same ERC-8004 count queries the analysis pipeline uses,
 // server-side, with the repo-local service-account key (gitignored). Defaults to dry-run
@@ -18,21 +18,6 @@ export const dynamic = "force-dynamic";
 
 const START = process.env.BQ_START ?? WINDOW.start;
 const MAX_BYTES = process.env.BQ_MAX_BYTES ?? "150000000000"; // 150 GB safety cap
-
-/** Walk up from cwd to find the gitignored service-account key. */
-function findKey(): string | null {
-  const env = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (env && fs.existsSync(env)) return env;
-  let dir = process.cwd();
-  for (let i = 0; i < 8; i++) {
-    const k = path.join(dir, ".secrets", "gcp-key.json");
-    if (fs.existsSync(k)) return k;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
-}
 
 function maskProject(id: string | undefined): string | null {
   if (!id) return null;

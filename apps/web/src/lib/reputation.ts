@@ -11,6 +11,7 @@
 import { num, bool } from "./csv";
 import { analysisDir, readCsv } from "./repoData";
 import { loadSnapshot } from "./snapshot";
+import { cached } from "./cache";
 
 export type BountyStatus = "settled" | "open";
 
@@ -54,6 +55,8 @@ export type Market = {
   openBounties: Bounty[];
   categories: CategoryStat[];
   validator: string; // the enclave address that signed the validations
+  asOf: string | null; // freshness of the live ERC-8004 trust prior (ISO); seeds are static
+  asOfBlock: number | null;
   kpis: {
     openCount: number;
     openRewardEth: number;
@@ -79,10 +82,13 @@ function demandMultiplier(independentRequesters: number): number {
 const clamp = (x: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, x));
 const round1 = (x: number) => Math.round(x * 10) / 10;
 
-let cached: Market | null = null;
+/** Layer-2 market (cached ~TTL). Bounties/submissions/settlements/validations stay on the
+ *  seed CSVs until the escrow + enclave ship; only the cold-start prior is live (BigQuery). */
+export function loadMarket(): Promise<Market> {
+  return cached("market", buildMarket);
+}
 
-export function loadMarket(): Market {
-  if (cached) return cached;
+async function buildMarket(): Promise<Market> {
   const dir = analysisDir();
   const agentRows = readCsv(dir, "honeycomb_agents.csv");
   const bountyRows = readCsv(dir, "honeycomb_bounties.csv");
@@ -121,9 +127,10 @@ export function loadMarket(): Market {
     return b;
   });
 
-  // global ERC-8004 trust score, for the cold-start prior
+  // global ERC-8004 trust score (live from BigQuery), for the cold-start prior
+  const snap = await loadSnapshot();
   const globalTrust = new Map<number, number>();
-  for (const a of loadSnapshot().agents) globalTrust.set(a.agentId, a.trustScore);
+  for (const a of snap.agents) globalTrust.set(a.agentId, a.trustScore);
 
   // index submissions + settlements by agent
   const subsByAgent = new Map<number, typeof subRows>();
@@ -240,12 +247,14 @@ export function loadMarket(): Market {
     catMap.set(b.category, c);
   }
 
-  cached = {
+  return {
     agents,
     bounties,
     openBounties,
     categories: [...catMap.values()].sort((a, b) => b.total - a.total),
     validator: (valRows[0]?.validator ?? "").toLowerCase(),
+    asOf: snap.asOf,
+    asOfBlock: snap.asOfBlock,
     kpis: {
       openCount: openBounties.length,
       openRewardEth: round1(openBounties.reduce((s, b) => s + b.rewardEth, 0)),
@@ -257,5 +266,4 @@ export function loadMarket(): Market {
       validations: valRows.length,
     },
   };
-  return cached;
 }
