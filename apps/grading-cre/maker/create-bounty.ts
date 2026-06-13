@@ -19,7 +19,7 @@ import { execSync } from "node:child_process";
 
 const RPC = process.env.RPC ?? "https://ethereum-sepolia-rpc.publicnode.com";
 const PK = process.env.SEP_PRIVATE_KEY;
-const ESCROW = process.env.ESCROW ?? "0x8b7d8Af7C6b051828f385fD53446266d6fCc3023";
+const ESCROW = process.env.ESCROW ?? "0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90";
 const USDC = process.env.USDC ?? "0x3211C5E4B4d57B673d67a976699121667f419e17";
 if (!PK) throw new Error("SEP_PRIVATE_KEY not set");
 

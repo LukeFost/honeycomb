@@ -31,9 +31,12 @@ forge test  →  7 passed; 0 failed
 ## Layout
 
 ```
-contracts/StrategyVault.sol          the CRE receiver + scoped policy (the authority layer)
+contracts/StrategyVault.sol          the CRE receiver (ERC-165) + scoped policy (authority layer)
 test/StrategyVaultForkSwap.t.sol     mainnet-fork proof (forwarder simulated via vm.prank)
+test/DecodeWorkflowPayload.t.sol     proves the workflow's viem payload decodes in the vault
 script/RealSwap.s.sol                gated real-money smoke test (does NOT run by default)
+strategy-workflow/main.ts            the CRE workflow: CRON -> Action -> report -> writeReport
+strategy-workflow/{workflow,config,…}  CRE targets + config (project.yaml is at the app root)
 DESIGN.md                            full design: matrix, architecture, Uniswap + CRE integration
 ```
 
@@ -57,6 +60,24 @@ forge test -vv --root .
 # or pin your own archive node:
 MAINNET_RPC_URL=https://your-rpc forge test -vv --root .
 ```
+
+## Run the CRE workflow (simulate)
+
+The off-chain half lives in `strategy-workflow/` (TypeScript, compiled to WASM by the CRE
+toolchain). On each CRON tick it builds the Universal Router calldata deterministically, encodes
+the **flat** `Action`, DON-signs it (`runtime.report`), and writes it (`writeReport → forwarder →
+vault.onReport`). v1 has no live quote — calldata is built from config so every DON node is
+byte-identical and consensus is trivial.
+
+```bash
+cd strategy-workflow && bun install && cd ..       # CRE SDK + WASM toolchain
+CRE_TARGET=staging-settings cre workflow simulate strategy-workflow \
+  --non-interactive --trigger-index 0
+```
+
+Passing run logs the tick, attempts the write (no `txHash` without `--broadcast`/a deployed vault —
+expected), and returns the Action summary. `config.staging.json` carries placeholder Sepolia
+addresses + a placeholder `vault`; set the real `vault`/`router` before a `--broadcast` run.
 
 ## Finding: the approval model (resolves a DESIGN.md open question)
 
@@ -84,10 +105,10 @@ forge script script/RealSwap.s.sol --rpc-url $MAINNET_RPC_URL --broadcast
 
 | Proven here | Next |
 |---|---|
-| Forwarder→`onReport`→Universal Router swap on a fork | Live CRE workflow `writeReport` → real KeystoneForwarder → vault (testnet/fork) |
-| Policy guards (forwarder, minOut, router, token, nonce, expiry) | The TS workflow encoding the `Action` ABI tuple to match `abi.decode` here |
-| Contract-account Permit2 approval path | Quote-consensus across DON nodes (numeric-fields aggregation) — still the open risk |
-| Balance-delta enforcement bounds a malicious router/API | A strategy driving the decision (A1 declarative interpreter, then A4 ML policy) |
+| Forwarder→`onReport`→Universal Router swap on a fork (9 tests green) | Live `writeReport` → REAL KeystoneForwarder → deployed vault (needs DON workflow registration + `--broadcast`) |
+| ERC-165 receiver + policy guards (forwarder, minOut, router, token, nonce, expiry) | Live Uniswap quote + quote-consensus across DON nodes (the open risk) |
+| CRE workflow passes `cre workflow simulate` (CRON→Action→report→writeReport) | A real strategy driving the decision (A1 interpreter, then A4 ML policy) |
+| viem→Solidity `Action` encoding cross-checked by a decode test | Deploy to Sepolia, set `expectedWorkflowId`, broadcast end-to-end |
 
 ### `Action` ABI tuple (for the CRE TS workflow's `encodeAbiParameters`)
 

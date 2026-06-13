@@ -1,16 +1,23 @@
 # Honeycomb Grading — CRE (end-to-end on Sepolia)
 
-A bounty is an **ERC-8183 Job**: the maker funds USDC escrow; a grader scores each
-submission (stub) + **attests validity with a real TEE LLM** (Chainlink Confidential
-AI Attester); a **CRE** workflow settles it on-chain through the KeystoneForwarder;
-the escrow pays the winning **ERC-8004 agent**.
+A bounty is an **ERC-8183 Job**. For each submission a grader produces **two TEE
+outputs** — a **real execution score** (backtest against the private dataset) and a
+**real AI validity attestation** (Chainlink Confidential AI Attester: "is this code
+legit / not hardcoded?"). Both, with their attestation digests, are recorded on-chain.
+A **CRE CRON (time-based) trigger** resolves the bounty after its deadline, paying the
+best **valid** submission's **ERC-8004 agent** (or refunding the maker).
 
 ```
-maker createBounty (USDC escrow)
-agent registered (ERC-8004 Identity → agentId)
-grader: stub score + REAL AI validity attestation  →  settlement payload
-CRE workflow (HTTP trigger) → KeystoneForwarder → BountyEscrow.onReport
-   valid winner → pay agent's wallet | else → refund maker
+maker createBounty (USDC escrow, deadline, testsHash commitment)
+per submission:
+  grader → REAL execution score (+ scoreAttestation)   [scorer.py, sandboxed]
+         → REAL AI validity      (+ validityAttestation) [Confidential AI Attester]
+  CRE HTTP trigger → recordGrade → leaderboard (only valid grades can lead)
+at deadline:
+  CRE CRON trigger → resolve → pay best valid agent's wallet | else refund maker
+all writes: KeystoneForwarder → BountyEscrow.onReport (action 0=recordGrade, 1=resolve)
+effective score = valid ? executionScore : 0   ← a cheat that scores HIGHER but is
+                                                  invalid loses to an honest lower score
 ```
 
 > Excluded from the honeycomb pnpm/turbo workspace (uses **bun** + the CRE WASM
@@ -20,7 +27,7 @@ CRE workflow (HTTP trigger) → KeystoneForwarder → BountyEscrow.onReport
 
 | | Address |
 |---|---|
-| BountyEscrow | `0x8b7d8Af7C6b051828f385fD53446266d6fCc3023` |
+| BountyEscrow | `0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90` |
 | MockUSDC (6dp) | `0x3211C5E4B4d57B673d67a976699121667f419e17` |
 | ERC-8004 Identity Registry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 | KeystoneForwarder (sim, `--broadcast`) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88` |
@@ -37,40 +44,47 @@ export CRE_ETH_PRIVATE_KEY="${SEP_PRIVATE_KEY#0x}" CRE_TARGET=staging-settings
 
 ## Run the full loop
 
+`trigger-index 0` = grade (HTTP `recordGrade`), `trigger-index 1` = resolve (CRON).
+
 ```bash
 # 1. (once) register a solver agent → prints an agentId. Wallet = your sender.
 cast send 0x8004A818BFB912233c491871b3d84c89A494BD9e "register(string)" \
   "https://honeycomb.dev/agents/my-solver" --private-key $SEP_PRIVATE_KEY \
   --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 
-# 2. open + fund a bounty (50 mUSDC, +1h) → prints jobId
-bun maker/create-bounty.ts 50 1 maker/bounties/uniswap-lp-trading-bot
+# 2. open + fund a bounty → prints jobId (set a SHORT deadline so resolve can fire;
+#    for a quick demo create directly with a ~120s deadline via cast, or edit the script)
+bun maker/create-bounty.ts 50 1 maker/bounties/uniswap-lp-trading-bot   # 50 mUSDC, +1h
 
-# 3. grade a submission: stub score + REAL AI attestation → settlement payload
-bun grader/grade.ts grader/submissions/clean.py <jobId> <agentId> > /tmp/settle.json
-
-# 4. settle on-chain (CRE → forwarder → escrow pays the winner)
+# 3. grade EACH submission (REAL score + REAL AI attestation) and record on-chain
+bun grader/grade.ts grader/submissions/clean.py     <jobId> <agentId> > /tmp/g.json
 cre workflow simulate grading-workflow --non-interactive --trigger-index 0 \
-  --http-payload /tmp/settle.json --broadcast
+  --http-payload /tmp/g.json --broadcast
+#  (repeat for other submissions; only valid grades take the lead)
+
+# 4. after the deadline, the CRON resolver settles + pays the best valid agent
+cre workflow simulate grading-workflow --non-interactive --trigger-index 1 --broadcast
 ```
 
 Verify:
 
 ```bash
-ESC=0x8b7d8Af7C6b051828f385fD53446266d6fCc3023
-cast call $ESC "isSettled(uint256)(bool)" <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
+ESC=0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90
+cast call $ESC "isSettled(uint256)(bool)"        <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 cast call $ESC "winnerWalletOf(uint256)(address)" <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
 
-`hardcoded.py` instead of `clean.py` → attestor returns `valid=false` → escrow
-refunds the maker instead of paying.
+A cheat (`hardcoded.py`) scores *higher* on execution but the attestor marks it
+`valid=false`, so it never leads — the honest `clean.py` wins. If no submission is
+valid, `resolve` refunds the maker.
 
 ## Local checks (no chain)
 
 ```bash
 forge test                                                       # contract incl. payout/refund
 cre workflow simulate grading-workflow --non-interactive \
-  --trigger-index 0 --http-payload ./simulation/grading-callback.json   # workflow only
+  --trigger-index 0 --http-payload ./simulation/grade-callback.json    # grade handler
+cre workflow simulate grading-workflow --non-interactive --trigger-index 1   # resolve handler
 ```
 
 ## Switching to real USDC
@@ -78,7 +92,7 @@ cre workflow simulate grading-workflow --non-interactive \
 The reward token is per-bounty (snapshotted) with an owner-settable default:
 
 ```bash
-cast send 0x8b7d8Af7C6b051828f385fD53446266d6fCc3023 "setRewardToken(address)" <USDC> \
+cast send 0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90 "setRewardToken(address)" <USDC> \
   --private-key $SEP_PRIVATE_KEY --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
 
@@ -104,9 +118,13 @@ attestation-bound key, register that key on-chain (`BountyEscrow.attesterKey`), 
 (the beta Confidential AI Attester won't sign an arbitrary tuple). See the project
 memory note for details.
 
-## Stubs / simplifications (not production)
+## Status / simplifications
 
-- `grader/grade.ts` `executionGrade()` is a **STUB** (real scoring needs a compute
-  enclave + Uniswap data); `attestValidity()` is real.
-- Reward token is `MockUSDC` (open mint). Deferred: reputation, CRON deadline
-  trigger / sealed reveal, ERC-8004 Validation Registry, and fix #2 above.
+- **Execution grading is REAL** — `executionGrade()` runs `scorer.py` against the
+  private series in a sandboxed subprocess (no network, timeout) and returns the real
+  backtest PnL (0..10000). Stage-1 digest is a content commitment, not yet a hardware
+  attestation; the Confidential Space enclave (`grader/enclave/`) is the Stage-2 path.
+- **AI validity is REAL** — `attestValidity()` calls the Confidential AI Attester.
+- **CRON time-based resolve is DONE** — `onResolveTick` settles after the deadline.
+- Reward token is `MockUSDC` (open mint). Deferred: fix #2 (bind the attestation to
+  job/winner — see above), reputation, sealed-score reveal, ERC-8004 Validation Registry.

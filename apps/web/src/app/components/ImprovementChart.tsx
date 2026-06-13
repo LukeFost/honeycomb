@@ -1,25 +1,23 @@
-// Log-scale chart: the autoresearcher's best private-set score per research
-// iteration. On a log axis the gains read as a straight, un-plateauing climb —
-// the point being continuous improvement. Data is deterministic (no Math.random)
-// so server and client render identically.
+// A logarithmic improvement curve on a LINEAR scale: the autoresearcher's score
+// on the hidden private set rises fast at first, then keeps refining with
+// diminishing returns — the classic "keeps getting better" shape. Data is
+// deterministic (no Math.random) so server and client render identically.
 
 const N = 40;
-const START = 14;
-const END = 7000;
-const DECADES = [10, 100, 1000, 10000];
+const LO = 22; // starting score
+const HI = 96; // score by iteration N
+const TAU = 3.2; // curve shape
+const TICKS = [0, 20, 40, 60, 80, 100];
 
 // viewBox geometry
 const W = 920;
 const H = 480;
-const L = 78; // left padding (y labels)
+const L = 64;
 const R = 28;
 const T = 28;
-const B = 56; // bottom padding (x labels)
+const B = 56;
 const PW = W - L - R;
 const PH = H - T - B;
-
-const Y_MIN = 10;
-const Y_MAX = 10000;
 
 // deterministic pseudo-noise in [0,1)
 const hash = (i: number) => {
@@ -27,35 +25,24 @@ const hash = (i: number) => {
   return x - Math.floor(x);
 };
 
+const score = (i: number) =>
+  LO + (HI - LO) * (Math.log(1 + i / TAU) / Math.log(1 + N / TAU)); // log growth
+
 const xAt = (i: number) => L + (i / N) * PW;
-const yAt = (v: number) => {
-  const f =
-    (Math.log10(v) - Math.log10(Y_MIN)) / (Math.log10(Y_MAX) - Math.log10(Y_MIN));
-  return T + (1 - f) * PH;
-};
-
-type Pt = { i: number; best: number; raw: number };
-
-function buildData(): Pt[] {
-  const out: Pt[] = [];
-  const k = Math.log10(END / START);
-  for (let i = 0; i <= N; i++) {
-    const best = START * Math.pow(10, (i / N) * k); // smooth log-linear climb
-    const raw = Math.max(Y_MIN, best * (0.5 + 0.62 * hash(i))); // scattered attempts
-    out.push({ i, best, raw });
-  }
-  return out;
-}
+const yAt = (v: number) => T + (1 - v / 100) * PH; // linear scale
 
 export default function ImprovementChart() {
-  const data = buildData();
-  const gain = Math.round(data[N].best / data[0].best);
+  const best = Array.from({ length: N + 1 }, (_, i) => ({ i, v: score(i) }));
+  const raw = best.map((p) => ({
+    i: p.i,
+    v: Math.max(0, Math.min(100, p.v + (hash(p.i) - 0.5) * 13)),
+  }));
 
-  const bestLine = data.map((p) => `${xAt(p.i).toFixed(1)},${yAt(p.best).toFixed(1)}`).join(" ");
+  const line = best.map((p) => `${xAt(p.i).toFixed(1)},${yAt(p.v).toFixed(1)}`).join(" ");
   const area =
-    `M ${xAt(0).toFixed(1)},${yAt(data[0].best).toFixed(1)} ` +
-    data.map((p) => `L ${xAt(p.i).toFixed(1)},${yAt(p.best).toFixed(1)}`).join(" ") +
-    ` L ${xAt(N).toFixed(1)},${(T + PH).toFixed(1)} L ${xAt(0).toFixed(1)},${(T + PH).toFixed(1)} Z`;
+    `M ${xAt(0).toFixed(1)},${yAt(best[0].v).toFixed(1)} ` +
+    best.map((p) => `L ${xAt(p.i).toFixed(1)},${yAt(p.v).toFixed(1)}`).join(" ") +
+    ` L ${xAt(N).toFixed(1)},${yAt(0).toFixed(1)} L ${xAt(0).toFixed(1)},${yAt(0).toFixed(1)} Z`;
 
   return (
     <section id="improvement" className="hc-section">
@@ -68,35 +55,35 @@ export default function ImprovementChart() {
         </h2>
         <p className="hc-body mt-4 max-w-2xl text-base leading-7 sm:text-lg">
           Honeycomb&apos;s autoresearcher loop compounds. Each research iteration raises
-          the best score on the hidden private set — and on a log scale the gains
-          don&apos;t flatten out, they keep climbing.
+          the score on the hidden private set — fast at first, then refining — and the
+          curve keeps climbing.
         </p>
 
         <div className="hc-card mt-10 rounded-2xl p-4 sm:p-6">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-            <span className="font-mono text-xs uppercase tracking-widest text-white/55">
-              best private-set score · log scale
+            <span className="font-mono text-xs uppercase tracking-widest text-black/55">
+              best private-set score
             </span>
-            <span className="font-mono text-xs text-[color:var(--accent,#ffc440)]">
-              ≈ {gain}× over {N} iterations
+            <span className="font-mono text-xs font-semibold text-[#b9810f]">
+              {Math.round(best[N].v)} / 100 · still climbing
             </span>
           </div>
 
           <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img"
-            aria-label={`Autoresearcher best score climbing roughly ${gain}x across ${N} research iterations on a log scale`}>
+            aria-label={`Autoresearcher private-set score rising from ${Math.round(best[0].v)} to ${Math.round(best[N].v)} as a logarithmic curve across ${N} research iterations`}>
             <defs>
               <linearGradient id="hcFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ffc440" stopOpacity="0.28" />
-                <stop offset="100%" stopColor="#ffc440" stopOpacity="0" />
+                <stop offset="0%" stopColor="#e0930a" stopOpacity="0.22" />
+                <stop offset="100%" stopColor="#e0930a" stopOpacity="0" />
               </linearGradient>
             </defs>
 
-            {/* horizontal log gridlines + y labels */}
-            {DECADES.map((d) => (
-              <g key={d}>
-                <line x1={L} y1={yAt(d)} x2={W - R} y2={yAt(d)} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-                <text x={L - 12} y={yAt(d) + 4} textAnchor="end" className="hc-axis">
-                  {d.toLocaleString()}
+            {/* horizontal gridlines + y labels (linear) */}
+            {TICKS.map((v) => (
+              <g key={v}>
+                <line x1={L} y1={yAt(v)} x2={W - R} y2={yAt(v)} stroke="rgba(32,36,43,0.10)" strokeWidth="1" />
+                <text x={L - 12} y={yAt(v) + 4} textAnchor="end" className="hc-axis">
+                  {v}
                 </text>
               </g>
             ))}
@@ -111,28 +98,28 @@ export default function ImprovementChart() {
               research iterations
             </text>
 
-            {/* area + best-so-far line */}
+            {/* area + curve */}
             <path d={area} fill="url(#hcFill)" />
             <polyline
-              points={bestLine}
+              points={line}
               fill="none"
-              stroke="#ffc440"
+              stroke="#e0930a"
               strokeWidth="2.5"
               strokeLinejoin="round"
               strokeLinecap="round"
             />
 
             {/* individual attempts (scatter) */}
-            {data.map((p) => (
-              <circle key={p.i} cx={xAt(p.i)} cy={yAt(p.raw)} r="2.4" fill="rgba(255,255,255,0.45)" />
+            {raw.map((p) => (
+              <circle key={p.i} cx={xAt(p.i)} cy={yAt(p.v)} r="2.4" fill="rgba(32,36,43,0.4)" />
             ))}
 
             {/* endpoint marker */}
-            <circle cx={xAt(N)} cy={yAt(data[N].best)} r="5" fill="#ffc440" />
-            <circle cx={xAt(N)} cy={yAt(data[N].best)} r="10" fill="#ffc440" opacity="0.18" />
+            <circle cx={xAt(N)} cy={yAt(best[N].v)} r="5" fill="#e0930a" />
+            <circle cx={xAt(N)} cy={yAt(best[N].v)} r="10" fill="#e0930a" opacity="0.18" />
           </svg>
 
-          <p className="mt-4 font-mono text-[0.7rem] leading-5 text-white/40">
+          <p className="mt-4 font-mono text-[0.7rem] leading-5 text-black/45">
             ● best score per iteration · ○ individual attempts — cites: autoresearcher gains
             (Honeycomb internal backtests, hidden private set)
           </p>

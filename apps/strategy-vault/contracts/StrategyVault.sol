@@ -18,10 +18,18 @@ interface IPermit2 {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
 }
 
+/// @notice ERC-165. The canonical CRE `IReceiver is IERC165`, and the real KeystoneForwarder
+///         checks `supportsInterface(receiver, type(IReceiver).interfaceId)` BEFORE delivering a
+///         report. A CRE receiver that does not advertise this may never be called. (Verified
+///         against cre-templates `keystone/IReceiver.sol` + `ReceiverTemplate.sol`.)
+interface IERC165 {
+    function supportsInterface(bytes4 interfaceId) external view returns (bool);
+}
+
 /// @notice Chainlink CRE receiver. The canonical KeystoneForwarder calls onReport after the
 ///         DON's report has been verified by the forwarder itself — the vault therefore trusts
 ///         `msg.sender == forwarder` and does NOT re-check the DON signature.
-interface IReceiver {
+interface IReceiver is IERC165 {
     function onReport(bytes calldata metadata, bytes calldata report) external;
 }
 
@@ -49,7 +57,8 @@ contract StrategyVault is IReceiver {
     /// @dev Canonical Permit2 (same address on every chain).
     address public constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
-    /// @notice The action the DON authorizes. ABI tuple (for the TS workflow encoder):
+    /// @notice The action the DON authorizes, ABI-encoded as a FLAT parameter list (NOT a struct
+    ///         tuple) so the TS workflow can `encodeAbiParameters(parseAbiParameters(...))` it:
     ///   (address to, bytes data, uint256 value, uint256 minOut, uint64 deadline,
     ///    address tokenIn, address tokenOut, uint256 amountIn, bytes32 nonce, bytes32 artifactHash)
     struct Action {
@@ -80,12 +89,18 @@ contract StrategyVault is IReceiver {
     mapping(address => bool) public isAllowedToken;
     mapping(bytes32 => bool) public usedNonce;
 
+    /// @notice If non-zero, only reports from this CRE workflow id are accepted (defence in depth
+    ///         beyond the forwarder's signature check). 0 = disabled. The workflow id is the first
+    ///         32 bytes of the report `metadata` (per the CRE ReceiverTemplate layout).
+    bytes32 public expectedWorkflowId;
+
     // epoch accounting
     uint64  public epochStart;
     uint256 public spentThisEpoch;
     uint32  public swapsThisEpoch;
 
     event PolicySet(address router, uint256 spendCapPerEpoch, uint64 expiry);
+    event ExpectedWorkflowIdSet(bytes32 workflowId);
     event SwapExecuted(
         address indexed tokenIn,
         address indexed tokenOut,
@@ -97,6 +112,7 @@ contract StrategyVault is IReceiver {
 
     error NotOwner();
     error NotForwarder();
+    error UnexpectedWorkflow(bytes32 workflowId);
     error RouterNotAllowed();
     error TokenNotAllowed();
     error GrantExpired();
@@ -120,6 +136,13 @@ contract StrategyVault is IReceiver {
 
     receive() external payable {}
 
+    /* ------------------------------ ERC-165 ------------------------------ */
+
+    /// @inheritdoc IERC165
+    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
+        return interfaceId == type(IReceiver).interfaceId || interfaceId == type(IERC165).interfaceId;
+    }
+
     /* -------------------------- owner ops -------------------------- */
 
     function setPolicy(
@@ -139,6 +162,12 @@ contract StrategyVault is IReceiver {
         spentThisEpoch = 0;
         swapsThisEpoch = 0;
         emit PolicySet(router, spendCapPerEpoch, expiry);
+    }
+
+    /// @notice Pin the CRE workflow id permitted to drive this vault (0 = disable the check).
+    function setExpectedWorkflowId(bytes32 id) external onlyOwner {
+        expectedWorkflowId = id;
+        emit ExpectedWorkflowIdSet(id);
     }
 
     /// @notice One-time allowance setup so the Universal Router can pull `token` from the
@@ -167,9 +196,39 @@ contract StrategyVault is IReceiver {
     /* ----------------------- CRE entrypoint ------------------------ */
 
     /// @inheritdoc IReceiver
-    function onReport(bytes calldata, bytes calldata report) external override {
+    function onReport(bytes calldata metadata, bytes calldata report) external override {
         if (msg.sender != forwarder) revert NotForwarder();
-        Action memory a = abi.decode(report, (Action));
+
+        // Optional defence-in-depth: pin WHICH workflow may act. The forwarder already verified
+        // the DON signature; this binds the report to a specific workflow id (first 32 bytes of
+        // metadata, per the CRE ReceiverTemplate layout). 0 = disabled.
+        if (expectedWorkflowId != bytes32(0)) {
+            bytes32 workflowId;
+            if (metadata.length >= 32) {
+                assembly {
+                    workflowId := calldataload(metadata.offset)
+                }
+            }
+            if (workflowId != expectedWorkflowId) revert UnexpectedWorkflow(workflowId);
+        }
+
+        // FLAT decode (matches the workflow's encodeAbiParameters(parseAbiParameters(...))).
+        Action memory a;
+        (
+            a.to,
+            a.data,
+            a.value,
+            a.minOut,
+            a.deadline,
+            a.tokenIn,
+            a.tokenOut,
+            a.amountIn,
+            a.nonce,
+            a.artifactHash
+        ) = abi.decode(
+            report,
+            (address, bytes, uint256, uint256, uint64, address, address, uint256, bytes32, bytes32)
+        );
         _execute(a);
     }
 

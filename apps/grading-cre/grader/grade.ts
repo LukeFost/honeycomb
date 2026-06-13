@@ -118,29 +118,28 @@ if (!path) {
 	process.exit(1);
 }
 const jobId = process.argv[3] ?? "1"; // ERC-8183 job id (string — can exceed 2^53)
-const winnerAgentId = process.argv[4] ?? "22"; // ERC-8004 agentId (string)
+const agentId = process.argv[4] ?? "22"; // ERC-8004 agentId of the submitter (string)
 const code = readFileSync(path, "utf8");
 const filename = path.split("/").pop()!;
 
-const exec = executionGrade(path, code, String(jobId));
-const validity = await attestValidity(filename, code);
-const score = Math.round(exec.score / 100); // STUB 0..10000 -> 0..100
+const exec = executionGrade(path, code, String(jobId)); // REAL backtest, 0..10000
+const validity = await attestValidity(filename, code); // REAL TEE AI attestation
 
 console.error(
-	`[grader] exec(REAL) score0_100=${score}  validity(REAL) valid=${validity.valid} reason="${validity.reason}" inferenceId=${validity.inferenceId}`,
+	`[grader] exec(REAL) score=${exec.score}/10000  validity(REAL) valid=${validity.valid} reason="${validity.reason}" inferenceId=${validity.inferenceId}`,
 );
-// Settlement-shaped payload posted to the CRE workflow's HTTP trigger.
-// reason = the REAL AI-attestor response_digest (the validity attestation).
-// (The execution attestation will become a separate ERC-8004 Validation entry.)
+// Grade callback posted to the CRE workflow's HTTP (recordGrade) trigger.
+// Carries BOTH TEE outputs: execution score+digest AND AI validity+digest.
 console.log(
 	JSON.stringify(
 		{
 			jobId,
+			agentId,
 			status: "completed",
-			winnerAgentId,
+			score: exec.score, // 0..10000
 			valid: validity.valid,
-			score,
-			reason: validity.attestationDigest,
+			scoreAttestation: exec.attestationDigest, // execution-enclave digest
+			validityAttestation: validity.attestationDigest, // AI attestor digest
 		},
 		null,
 		2,

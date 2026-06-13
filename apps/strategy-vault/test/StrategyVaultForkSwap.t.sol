@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 import "forge-std/Test.sol";
-import {StrategyVault, IERC20} from "../contracts/StrategyVault.sol";
+import {StrategyVault, IERC20, IReceiver, IERC165} from "../contracts/StrategyVault.sol";
 
 interface IQuoterV2 {
     struct QuoteExactInputSingleParams {
@@ -114,7 +114,12 @@ contract StrategyVaultForkSwap is Test {
             nonce: nonce,
             artifactHash: keccak256("strategy-v1")
         });
-        return abi.encode(a);
+        // FLAT encoding to match the vault's flat abi.decode AND the TS workflow's
+        // encodeAbiParameters(parseAbiParameters(...)).
+        return abi.encode(
+            a.to, a.data, a.value, a.minOut, a.deadline,
+            a.tokenIn, a.tokenOut, a.amountIn, a.nonce, a.artifactHash
+        );
     }
 
     /* ------------------------------ tests ------------------------------ */
@@ -186,5 +191,13 @@ contract StrategyVaultForkSwap is Test {
         vm.prank(forwarder);
         vm.expectRevert(StrategyVault.ActionExpired.selector);
         vault.onReport("", report);
+    }
+
+    /// The real KeystoneForwarder gates delivery on ERC-165 supportsInterface BEFORE calling
+    /// onReport; the vm.prank tests bypass that, so assert the receiver advertises it.
+    function test_SupportsInterface() public view {
+        assertTrue(vault.supportsInterface(type(IReceiver).interfaceId), "IReceiver not advertised");
+        assertTrue(vault.supportsInterface(type(IERC165).interfaceId), "IERC165 not advertised");
+        assertFalse(vault.supportsInterface(0xffffffff), "bogus id should be false");
     }
 }

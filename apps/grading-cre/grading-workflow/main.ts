@@ -1,27 +1,27 @@
 // ============================================================================
-// Bounty Grading — Winner Settlement Workflow (CRE, TypeScript)
+// Bounty Grading + Resolution Workflow (CRE, TypeScript)
 // ============================================================================
-// Simplest version of the Honeycomb grading flow.
+// Two handlers, one workflow:
 //
-// Flow:
-//   1. A grader (TEE enclave / MCP) finishes scoring a bounty's submissions and
-//      POSTs the result to this workflow's HTTP-trigger endpoint. The body
-//      carries the winning submission + the TEE attestation digest that proves
-//      the grade was produced inside the enclave.
-//   2. This workflow parses that result, ABI-encodes a settlement, and writes it
-//      on-chain via the EVM client (report -> KeystoneForwarder -> onReport).
-//   3. The on-chain BountyEscrow consumer records the winner and exposes
-//      winnerOf(bountyId) / isSettled(bountyId) so payout can be gated on it.
+//   • HTTP trigger  onGrade        — the grader (TEE) posts each graded submission;
+//     this records it on-chain via BountyEscrow.recordGrade, carrying BOTH TEE
+//     outputs: the execution score (+ scoreAttestationHash) and the AI validity
+//     verdict (+ validityAttestationHash). Only valid grades can take the lead.
 //
-// Mirrors the proven pattern from the confidential-ai-attester demo. No secrets,
-// no Confidential HTTP, no x402 yet — just the attester-style push/callback +
-// on-chain write.
+//   • CRON trigger  onResolveTick  — the TIME-BASED resolver. After the bounty's
+//     deadline it calls BountyEscrow.resolve(jobId), paying the best valid agent
+//     (ERC-8004 Identity) or refunding the maker. The contract enforces the
+//     deadline; before it, resolve reverts and we just log + move on.
 //
-// QuickJS/WASM runtime: no process.env / Buffer / crypto; viem does all ABI
-// encoding and hashing; Solidity integers are bigint.
+// Both reach the consumer through the KeystoneForwarder's single onReport, with
+// an action discriminator (0 = recordGrade, 1 = resolve).
+//
+// QuickJS/WASM runtime: no process.env / Buffer / crypto; viem does ABI encoding;
+// Solidity integers are bigint.
 // ============================================================================
 
 import {
+	CronCapability,
 	EVMClient,
 	HTTPCapability,
 	handler,
@@ -38,44 +38,39 @@ import {
 	type Hex,
 } from "viem";
 
-// --- Config (config.staging.json / config.production.json) ------------------
+// --- Config -----------------------------------------------------------------
 
-// HTTP trigger authorized signer key. Leave authorizedKeys empty ([]) in
-// simulation to accept any sender.
 type AuthorizedKey = {
 	type?: "KEY_TYPE_UNSPECIFIED" | "KEY_TYPE_ECDSA_EVM";
 	publicKey?: string;
 };
 
 export type Config = {
-	authorizedKeys: AuthorizedKey[];
+	authorizedKeys: AuthorizedKey[]; // gates the HTTP (recordGrade) trigger when deployed
 	consumerAddress: `0x${string}`;
 	chainSelectorName: string;
+	schedule: string; // CRON schedule for the resolver
+	jobId: number; // the bounty the CRON resolver settles
 };
 
-// --- Grading callback (only the fields this workflow uses) ------------------
-// See simulation/grading-callback.json. The off-chain grader picks the winner
-// (an ERC-8004 agentId) from the two attested TEE jobs — execution grading
-// (score) and AI validity attestation — and posts the settlement here.
-type GradingCallback = {
-	jobId?: number | string; // ERC-8183 job id (uint256)
+// --- Grade callback (from the grader) ---------------------------------------
+// See simulation/grade-callback.json.
+type GradeCallback = {
+	jobId?: number | string;
+	agentId?: number | string; // ERC-8004 agentId of the submitter
 	status?: string; // "completed" | "failed"
-	winnerAgentId?: number | string; // ERC-8004 agentId of the winner
-	valid?: boolean; // AI attestor verdict: valid and not hardcoded
-	score?: number; // winning execution score, 0..100
-	reason?: string; // attestation / validation responseHash (bytes32 hex)
+	score?: number; // execution score 0..10000 (real backtest PnL, scaled)
+	valid?: boolean; // AI validity verdict (valid && not hardcoded)
+	scoreAttestation?: string; // execution-enclave attestation digest (bytes32 hex)
+	validityAttestation?: string; // Confidential AI Attester digest (bytes32 hex)
 };
-
-// ABI shape written on-chain and decoded by BountyEscrow.onReport():
-//   (uint256 jobId, uint256 winnerAgentId, bool valid, uint8 score, bytes32 reason)
-const SETTLEMENT_ABI =
-	"uint256 jobId, uint256 winnerAgentId, bool valid, uint8 score, bytes32 reason";
 
 const ZERO_BYTES32 = "0x".padEnd(66, "0") as Hex;
+const RECORD_GRADE_ABI =
+	"uint256 jobId, uint256 agentId, uint16 score, bool valid, bytes32 scoreAtt, bytes32 validityAtt";
+const ACTION_ABI = "uint8 action, bytes data";
 
-// --- Helpers ----------------------------------------------------------------
-
-/** Normalize a 32-byte hex digest (with or without 0x) to a bytes32 value. */
+/** Normalize a 32-byte hex digest (with or without 0x) to bytes32. */
 const toBytes32 = (hex: string): Hex => {
 	const h = hex.replace(/^0[xX]/, "");
 	if (h.length !== 64 || !/^[0-9a-fA-F]+$/.test(h)) {
@@ -84,98 +79,112 @@ const toBytes32 = (hex: string): Hex => {
 	return `0x${h.toLowerCase()}` as Hex;
 };
 
-// --- HTTP trigger handler — receives the grading callback -------------------
+/** Wrap an inner payload with the onReport action discriminator. */
+const actionReport = (action: number, innerEncoded: Hex): Hex =>
+	encodeAbiParameters(parseAbiParameters(ACTION_ABI), [action, innerEncoded]);
 
-export const onGradingResult = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
-	// 1. Decode the HTTP body bytes into the callback object.
-	const callback = JSON.parse(bytesToString(payload.input)) as GradingCallback;
-	runtime.log(
-		`Grading callback received: jobId=${callback.jobId ?? "unknown"} status=${
-			callback.status ?? "unknown"
-		}`,
-	);
+/** Sign + write a report to the consumer via the forwarder. */
+const writeReport = (runtime: Runtime<Config>, encodedPayload: Hex) => {
+	const signedReport = runtime.report(prepareReportRequest(encodedPayload)).result();
+	const selectors = EVMClient.SUPPORTED_CHAIN_SELECTORS;
+	const chainSelector = selectors[runtime.config.chainSelectorName as keyof typeof selectors];
+	if (chainSelector === undefined) {
+		throw new Error(`unsupported chainSelectorName: ${runtime.config.chainSelectorName}`);
+	}
+	const reply = new EVMClient(chainSelector)
+		.writeReport(runtime, {
+			receiver: runtime.config.consumerAddress,
+			report: signedReport,
+			gasConfig: { gasLimit: "500000" },
+		})
+		.result();
+	return { txHash: reply.txHash ? toHex(reply.txHash) : null, error: reply.errorMessage ?? null };
+};
 
-	// 2. Only act on completed gradings.
-	if (callback.status !== "completed") {
-		runtime.log(`Status is not "completed"; skipping on-chain write.`);
-		return JSON.stringify({
-			jobId: callback.jobId ?? null,
-			status: callback.status ?? null,
-			action: "skipped",
-		});
+// --- HTTP trigger: record a graded submission -------------------------------
+
+export const onGrade = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
+	const cb = JSON.parse(bytesToString(payload.input)) as GradeCallback;
+	runtime.log(`Grade received: job=${cb.jobId ?? "?"} agent=${cb.agentId ?? "?"} status=${cb.status ?? "?"}`);
+
+	if (cb.status !== "completed") {
+		runtime.log(`Status not "completed"; skipping.`);
+		return JSON.stringify({ action: "skipped", jobId: cb.jobId ?? null });
 	}
 
-	// 3. Resolve the settlement fields.
-	const jobId = BigInt(callback.jobId ?? 0);
-	const winnerAgentId = BigInt(callback.winnerAgentId ?? 0);
-	const valid = callback.valid === true;
-	const rawScore = Number(callback.score ?? 0);
-	const score = Math.max(0, Math.min(100, Math.round(rawScore))); // clamp to uint8 0..100
-	const reason = callback.reason ? toBytes32(callback.reason) : ZERO_BYTES32;
+	const jobId = BigInt(cb.jobId ?? 0);
+	const agentId = BigInt(cb.agentId ?? 0);
+	const score = Math.max(0, Math.min(10000, Math.round(Number(cb.score ?? 0)))); // uint16
+	const valid = cb.valid === true;
+	const scoreAtt = cb.scoreAttestation ? toBytes32(cb.scoreAttestation) : ZERO_BYTES32;
+	const validityAtt = cb.validityAttestation ? toBytes32(cb.validityAttestation) : ZERO_BYTES32;
 	runtime.log(
-		`jobId=${jobId} winnerAgentId=${winnerAgentId} valid=${valid} score=${score} reason=${reason}`,
+		`recordGrade job=${jobId} agent=${agentId} score=${score} valid=${valid} scoreAtt=${scoreAtt} validityAtt=${validityAtt}`,
 	);
 
-	// 4. ABI-encode the settlement: (uint256, uint256, bool, uint8, bytes32).
-	const encodedPayload = encodeAbiParameters(parseAbiParameters(SETTLEMENT_ABI), [
+	const inner = encodeAbiParameters(parseAbiParameters(RECORD_GRADE_ABI), [
 		jobId,
-		winnerAgentId,
-		valid,
+		agentId,
 		score,
-		reason,
+		valid,
+		scoreAtt,
+		validityAtt,
 	]);
+	const report = actionReport(0, inner);
 
-	// 5. Generate a signed report and write it on-chain. Guarded so the workflow
-	//    always returns a summary even when the write can't be broadcast.
 	let write: Record<string, unknown> = { attempted: false };
 	try {
-		const signedReport = runtime.report(prepareReportRequest(encodedPayload)).result();
-
-		const selectors = EVMClient.SUPPORTED_CHAIN_SELECTORS;
-		const chainSelector = selectors[runtime.config.chainSelectorName as keyof typeof selectors];
-		if (chainSelector === undefined) {
-			throw new Error(`unsupported chainSelectorName: ${runtime.config.chainSelectorName}`);
-		}
-
-		const reply = new EVMClient(chainSelector)
-			.writeReport(runtime, {
-				receiver: runtime.config.consumerAddress,
-				report: signedReport,
-				gasConfig: { gasLimit: "500000" },
-			})
-			.result();
-
-		const txHash = reply.txHash ? toHex(reply.txHash) : null;
-		const errorMessage = reply.errorMessage ?? null;
-		write = { attempted: true, txHash, error: errorMessage };
-		runtime.log(`On-chain write: txHash=${txHash ?? "n/a"} error=${errorMessage ?? "n/a"}`);
+		write = { attempted: true, ...writeReport(runtime, report) };
+		runtime.log(`recordGrade write: ${JSON.stringify(write)}`);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		write = { attempted: true, error: message };
-		runtime.log(
-			`On-chain write failed (expected in simulation without --broadcast / a real consumer): ${message}`,
-		);
+		runtime.log(`recordGrade write failed (expected without --broadcast): ${message}`);
 	}
 
-	// 6. Return a JSON summary.
 	return JSON.stringify({
+		action: "recordGrade",
 		jobId: jobId.toString(),
-		winnerAgentId: winnerAgentId.toString(),
-		status: callback.status,
+		agentId: agentId.toString(),
+		score,
 		valid,
-		score: score.toString(),
-		reason,
-		consumerAddress: runtime.config.consumerAddress,
-		chainSelectorName: runtime.config.chainSelectorName,
+		scoreAttestationHash: scoreAtt,
+		validityAttestationHash: validityAtt,
 		write,
 	});
 };
 
-// --- Workflow wiring --------------------------------------------------------
+// --- CRON trigger: time-based resolution ------------------------------------
+
+export const onResolveTick = (runtime: Runtime<Config>): string => {
+	const jobId = BigInt(runtime.config.jobId ?? 0);
+	runtime.log(`Resolve tick at ${runtime.now().toISOString()} for job ${jobId}`);
+
+	const inner = encodeAbiParameters(parseAbiParameters("uint256 jobId"), [jobId]);
+	const report = actionReport(1, inner);
+
+	let write: Record<string, unknown> = { attempted: false };
+	try {
+		write = { attempted: true, ...writeReport(runtime, report) };
+		runtime.log(`resolve write: ${JSON.stringify(write)}`);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		write = { attempted: true, error: message };
+		runtime.log(`resolve skipped/failed (before deadline or already resolved): ${message}`);
+	}
+
+	return JSON.stringify({ action: "resolve", jobId: jobId.toString(), write });
+};
+
+// --- Wiring (trigger-index 0 = grade/HTTP, 1 = resolve/CRON) -----------------
 
 export const initWorkflow = (config: Config) => {
 	const http = new HTTPCapability();
-	return [handler(http.trigger({ authorizedKeys: config.authorizedKeys }), onGradingResult)];
+	const cron = new CronCapability();
+	return [
+		handler(http.trigger({ authorizedKeys: config.authorizedKeys }), onGrade),
+		handler(cron.trigger({ schedule: config.schedule }), onResolveTick),
+	];
 };
 
 export async function main() {
