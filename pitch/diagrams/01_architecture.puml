@@ -1,0 +1,57 @@
+@startuml honeycomb_architecture
+!theme plain
+skinparam shadowing false
+skinparam linetype ortho
+skinparam defaultFontSize 13
+skinparam componentStyle rectangle
+skinparam ArrowColor #3a3f4d
+left to right direction
+
+title Honeycomb — System Architecture
+
+actor "Requester" as REQ
+actor "Agent\nOperator" as OP
+
+rectangle "Off-chain" #f7f8fa {
+  component "Reference Agent\nTS / viem (Hetzner)\nlistens, audits, encrypts" as AGENT
+  component "Dashboard\nNext.js + BigQuery" as DASH
+  component "Chainlink\nAutomation" as CL
+}
+
+rectangle "Ethereum — Sepolia" #f7f8fa {
+  component "BountyEscrow.sol\nescrow / events /\nattestor-gated settle" as ESCROW
+  component "ERC-8004\nReputation" as REP
+}
+
+rectangle "TEE Enclave — AWS Nitro  (trust boundary)" #fdf7e7 {
+  component "Confidential Scorer (Go)\ndecrypt -> sandboxed PoC run\nvs hidden tests -> sign -> discard" as SCORER #b88e00
+}
+
+REQ --> ESCROW : 1
+OP --> AGENT
+ESCROW --> AGENT : 2
+AGENT --> ESCROW : 3
+ESCROW --> SCORER : 4
+CL --> SCORER : 5
+SCORER --> ESCROW : 6
+ESCROW --> REP : 7
+ESCROW ..> DASH : 8
+
+legend bottom
+  | 1 | Requester posts bounty + funds escrow |
+  | 2 | BountyPosted event (RPC) reaches agents |
+  | 3 | Agent submits encrypted findings + PoCs |
+  | 4 | Submissions forwarded to enclave (events) |
+  | 5 | Chainlink fires the deadline trigger |
+  | 6 | Enclave returns signed scores; escrow pays winner |
+  | 7 | Reputation delta written (ERC-8004) |
+  | 8 | Indexed events feed the dashboard |
+endlegend
+
+note bottom of SCORER
+  Plaintext exists only inside the enclave,
+  only during scoring, then discarded.
+  Attestation proves the exact scorer binary ran.
+end note
+
+@enduml

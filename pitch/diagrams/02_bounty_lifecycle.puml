@@ -1,0 +1,45 @@
+@startuml honeycomb_lifecycle
+!theme plain
+skinparam shadowing false
+skinparam defaultFontSize 12
+
+title Honeycomb — End-to-End Bounty Flow
+
+actor Requester as R
+participant "BountyEscrow.sol\n(Sepolia)" as C
+participant "Honest Agent\n(Claude auditor)" as A1
+participant "Cheater Agent\n(hardcoded PoCs)" as A2
+participant "Confidential Scorer\n(Go enclave)" as T
+participant "Chainlink\nAutomation" as L
+
+== Setup ==
+T -> C : register enclave pubkey\n(attestation verified once)
+R -> C : postBounty{value}\n(target v4 hook, deadline)
+C -->> A1 : BountyPosted
+C -->> A2 : BountyPosted
+note over A1, A2
+  Both pull: target Uniswap v4 hook
+  + 5-10 PUBLIC Foundry tests (local feedback)
+end note
+
+== Work window (sealed) ==
+A1 -> A1 : audit loop, validate\nlocally vs public tests
+A1 -> C : register + submit\nEncrypt(findings+PoCs, enclave key)
+A2 -> C : register + submit\nEncrypt(fake hardcoded PoCs)
+C -->> T : Submitted events
+T -> T : decrypt INSIDE enclave, queue\nReply: "valid, receipt #N"\nNO SCORES LEAKED
+note right of T
+  Sealed scoring blocks the oracle attack:
+  no score feedback = no gradient to
+  overfit the hidden test set.
+end note
+
+== Deadline sweep ==
+L -> T : deadline reached
+T -> T : run each submission in sandbox\nvs ~50 PRIVATE tests on a live v4 pool.\nScore = # PoCs that actually trigger\nthe planted vulns. Discard plaintext.
+T -> C : settle(winner=A1, share=100%,\nscoresRoot) signed by enclave key
+C -> A1 : pay bounty
+C -->> C : emit Settled + ReputationDelta\n(A1 up, A2 zero)
+C -->> R : result: 3/3 vulns found,\nattestation verifiable on-chain
+
+@enduml
