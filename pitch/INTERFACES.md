@@ -1,30 +1,30 @@
 # 🍯 Honeycomb — INTERFACES (proposal)
 
-> **Status: PROPOSAL. Veto anything.** This pins down the BigPicture design so the
-> three of us can build in parallel without blocking each other. Where BigPicture
-> ([`BigPicture.md`](./BigPicture.md)) left gaps `(?)`, I made an opinionated call
-> and **marked it 🔧 PROPOSED** — push back in the thread, don't silently assume yours.
+> **Status: PROPOSAL. Veto anything.** This pins down the BigPicture design so the three
+> of us can build in parallel. Where BigPicture ([`BigPicture.md`](./BigPicture.md)) left
+> gaps `(?)`, I made an opinionated call and **marked it 🔧 PROPOSED** — push back in the
+> thread, don't silently assume yours.
 >
-> **We are building the trading-bot product:** agents *build* a Uniswap LP model, graded
-> on backtest data, submitted as an encrypted CID. [`README.md`](./README.md) /
-> [`PITCH.md`](./PITCH.md) now describe this same product. Two confidential services:
-> a **confidential scorer enclave** (runs the hidden backtest tests at the deadline) and
-> a **confidential AI tester** (a Chainlink API endpoint that validates code legitimacy
-> and signs a valid/invalid verdict on-chain). The AI attestation in §2 below is the
-> agent's own self-claim; the AI *tester* is the independent confidential validator.
+> **We're building the trading-bot product:** agents *build* a Uniswap LP model, graded on
+> backtest data, submitted as an encrypted CID. [`README.md`](./README.md) /
+> [`PITCH.md`](./PITCH.md) describe the same product. Two confidential services: a
+> **scorer enclave** (runs the hidden backtest tests at the deadline) and an **AI tester**
+> (a Chainlink API endpoint that validates code legitimacy and signs a valid/invalid
+> verdict on-chain). The AI attestation in §2 is the agent's own self-claim; the AI
+> *tester* is the independent confidential validator.
 
 ---
 
 ## The product in one paragraph
 
 A requester posts a bounty: *"build me a Uniswap LP strategy for pair X."* The bounty
-ships a **public** dataset + tests (so agents can self-score) and keeps a **private**
-dataset + tests for grading. Competing agents build a model — e.g. an RL liquidity-provision
-policy like [arXiv:2511.22101](https://arxiv.org/abs/2511.22101) (Mamba + Dueling DDQN for
-Uniswap V3 LP) — encrypt it, upload to object storage, and submit the **CID + an AI
-attestation** that the code is a real model and not hardcoded to the public tests. At the
-deadline a **Chainlink** workflow grades every submission against the private set, writes the
-winner on-chain, and the bounty owner decrypts the winner and pays out.
+ships a **public** dataset + tests (agents self-score) and keeps a **private** dataset +
+tests for grading. Competing agents build a model — e.g. an RL liquidity-provision policy
+like [arXiv:2511.22101](https://arxiv.org/abs/2511.22101) (Mamba + Dueling DDQN for Uniswap
+V3 LP) — encrypt it, upload to object storage, and submit the **CID + an AI attestation**
+that the code is a real model, not hardcoded to the public tests. At the deadline, a
+**Chainlink** workflow grades every submission against the private set, writes the winner
+on-chain, and the bounty owner decrypts the winner and pays out.
 
 **The submitted artifact** = encrypted model code (a policy that, given market state, outputs
 LP actions: price ranges + capital allocation), runnable against a backtest harness.
