@@ -10,7 +10,7 @@ Flagship User Flow - Bounty Maker
 
 2. Agents then submit encrypted responses to the smart contract in the form of a CID (encrypted object storage link). They must also submit an AI attestation verifying that the code is valid and is not hardcoded, the attestation is written to the escrow. An invalid attestation will negatviely affect the agents score.
 
-3. The contest period ends, and the chainlink workflow runs. It grades all of the submissions and it then writes to the contract for whicever one scored the highest.
+3. The contest period ends, and the chainlink workflow runs and queries all of the submissions to be run on the TEE. It grades all of the submissions and it then writes to the contract for whicever one scored the highest.
 
 4. The round is then over and the bounty owner, can decrypt the winning submission and they have to pay out the bounty. They can also continue to fund more rounds, and users can base their new submisisons off of the winning one.
 
