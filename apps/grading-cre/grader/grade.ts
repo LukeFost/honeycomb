@@ -14,23 +14,59 @@
 // ============================================================================
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const BASE_URL = process.env.BASE_URL ?? "https://confidential-ai-dev-preview.cldev.cloud";
 const API_KEY = process.env.INFERENCE_API_KEY_VAR;
-const sha256hex = (s: string) => createHash("sha256").update(s).digest("hex");
+const sha256hex = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
+
+const HERE = dirname(new URL(import.meta.url).pathname);
+const SCORER = join(HERE, "scorer.py");
+const PRIVATE_SERIES = join(
+	HERE,
+	"..",
+	"maker",
+	"bounties",
+	"uniswap-lp-trading-bot",
+	"private",
+	"prices_private.json",
+);
 
 // ---------------------------------------------------------------------------
-// *** STUB *** execution grading.
-// A real deployment runs the submission INSIDE A COMPUTE ENCLAVE (e.g. Google
-// Confidential Space) against the public + private datasets and returns the
-// measured score (backtest PnL, scaled 0..10000) plus the enclave's attestation
-// digest. The Confidential AI Attester CANNOT do this — it is an LLM, not a code
-// sandbox. Stubbed here as a deterministic placeholder derived from the code.
+// REAL execution grading. Runs the submission against the PRIVATE price series
+// in a separate, isolated process (scorer.py spawns the untrusted worker; the
+// submission sees only price DATA, never the file, never the network) and
+// returns the real backtested PnL, scaled 0..10000 — NOT a hash of the code.
+//
+// In the Confidential Space deployment this exact scorer runs inside the enclave
+// and the digest below is signed by Cloud KMS. Here (Stage 1) the digest is a
+// content commitment over the graded inputs+output: it proves "this exact code,
+// graded against this exact private series, produced this exact score", and is
+// verifiable later against the on-chain scoreAttestationHash. It is NOT a
+// hardware attestation yet — honest labeling per HARNESS_SPEC.md.
 // ---------------------------------------------------------------------------
-function executionGrade(code: string): { score: number; attestationDigest: string } {
-	const score = 1 + (parseInt(sha256hex(code).slice(0, 4), 16) % 10000); // STUB score
-	return { score, attestationDigest: sha256hex("STUB-EXECUTION:" + code) };
+function executionGrade(submissionPath: string, code: string, bountyId: string): {
+	score: number;
+	attestationDigest: string;
+} {
+	const out = execFileSync("python3", [SCORER, submissionPath], {
+		encoding: "utf8",
+		timeout: 30_000, // hard ceiling on the whole grade; scorer has its own per-walk deadline
+	});
+	const score = parseInt(out.trim(), 10);
+	if (!Number.isInteger(score) || score < 0 || score > 10000) {
+		throw new Error(`scorer returned a non-score: ${JSON.stringify(out)}`);
+	}
+
+	// Content commitment: sha256(bountyId || submissionHash || privateSeriesHash || score).
+	const submissionHash = sha256hex(code);
+	const privateSeriesHash = sha256hex(readFileSync(PRIVATE_SERIES));
+	const attestationDigest = sha256hex(
+		`${bountyId}|${submissionHash}|${privateSeriesHash}|${score}`,
+	);
+	return { score, attestationDigest };
 }
 
 // ---------------------------------------------------------------------------
@@ -86,12 +122,12 @@ const winnerAgentId = Number(process.argv[4] ?? 22); // ERC-8004 agentId
 const code = readFileSync(path, "utf8");
 const filename = path.split("/").pop()!;
 
-const exec = executionGrade(code);
+const exec = executionGrade(path, code, bountyId);
 const validity = await attestValidity(filename, code);
 const score = Math.round(exec.score / 100); // STUB 0..10000 -> 0..100
 
 console.error(
-	`[grader] exec(STUB) score0_100=${score}  validity(REAL) valid=${validity.valid} reason="${validity.reason}" inferenceId=${validity.inferenceId}`,
+	`[grader] exec(REAL) score0_100=${score}  validity(REAL) valid=${validity.valid} reason="${validity.reason}" inferenceId=${validity.inferenceId}`,
 );
 // Settlement-shaped payload posted to the CRE workflow's HTTP trigger.
 // reason = the REAL AI-attestor response_digest (the validity attestation).
