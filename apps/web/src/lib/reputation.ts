@@ -1,15 +1,19 @@
 // Layer 2 — earned, participation-scoped Honeycomb reputation.
 //
-// Mirrors analysis/honeycomb_reputation.sql in TS so the dashboard can render the market
-// before the escrow contract exists. Inputs are the seed star-schema CSVs
-// (analysis/honeycomb_{agents,bounties,submissions,settlements}.csv); in production these
-// tables are materialized in BigQuery from the contract's decoded logs and this same logic
-// runs as the SQL view. In production, each submission's enclave_score / attestation_ok come
-// from the ERC-8004 Validation Registry's ValidationResponse event (the enclave is the
-// `validator`, `response` is the score) — see bq.ts VALIDATION_REGISTRY. The global ERC-8004
-// trust score (snapshot.ts) is used only as a cold-start prior for agents with no wins yet.
-import { num, bool } from "./csv";
-import { analysisDir, readCsv } from "./repoData";
+// Reads the LIVE BigQuery market tables (honeycomb.{bounties,submissions,validations,
+// settlements} + registrations for agent owners), decoded from the Honeycomb escrow's events
+// by the indexer. Each submission's enclave_score / attestation_ok come from the escrow's
+// ValidationRecorded event (the enclave is the `validator`, `response` is the score). The
+// global ERC-8004 trust score (snapshot.ts) is used only as a cold-start prior for agents with
+// no wins yet. Server-only — keep imports inside Server Components / routes.
+import { queryRows } from "./bqClient";
+import {
+  selectMarketAgentsSql,
+  selectBountiesSql,
+  selectSubmissionsSql,
+  selectValidationsSql,
+  selectSettlementsSql,
+} from "./bq";
 import { loadSnapshot } from "./snapshot";
 import { cached } from "./cache";
 
@@ -55,7 +59,7 @@ export type Market = {
   openBounties: Bounty[];
   categories: CategoryStat[];
   validator: string; // the enclave address that signed the validations
-  asOf: string | null; // freshness of the live ERC-8004 trust prior (ISO); seeds are static
+  asOf: string | null; // freshness of the live ERC-8004 trust prior (ISO)
   asOfBlock: number | null;
   kpis: {
     openCount: number;
@@ -68,6 +72,19 @@ export type Market = {
     validations: number;
   };
 };
+
+// --- BigQuery row shapes (snake_case, as the serving SELECTs return them) ---
+type AgentRow = { agent_id: number; owner: string | null; agent_uri: string | null };
+type BountyRow = {
+  bounty_id: number; requester: string | null; category: string; title: string;
+  reward_eth: number; created_at: string; deadline: string;
+};
+type SubmissionRow = { bounty_id: number; agent_id: number; submission_cid: string | null };
+type ValidationRow = {
+  bounty_id: number; agent_id: number; validator: string | null; response: number; valid: boolean;
+  response_hash: string | null;
+};
+type SettlementRow = { bounty_id: number; winner_agent_id: number; winner_score: number; attestation_hash: string | null };
 
 const COLD_START_DISCOUNT = 0.5; // a newcomer's global ERC-8004 trust is a weak prior only
 
@@ -82,87 +99,86 @@ function demandMultiplier(independentRequesters: number): number {
 const clamp = (x: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, x));
 const round1 = (x: number) => Math.round(x * 10) / 10;
 
-/** Layer-2 market (cached ~TTL). Bounties/submissions/settlements/validations stay on the
- *  seed CSVs until the escrow + enclave ship; only the cold-start prior is live (BigQuery). */
+function push<K, V>(m: Map<K, V[]>, k: K, v: V): void {
+  const arr = m.get(k);
+  if (arr) arr.push(v);
+  else m.set(k, [v]);
+}
+
+/** Layer-2 market (cached ~TTL). All tables are small derived stores — never the raw logs. */
 export function loadMarket(): Promise<Market> {
   return cached("market", buildMarket);
 }
 
 async function buildMarket(): Promise<Market> {
-  const dir = analysisDir();
-  const agentRows = readCsv(dir, "honeycomb_agents.csv");
-  const bountyRows = readCsv(dir, "honeycomb_bounties.csv");
-  const subRows = readCsv(dir, "honeycomb_submissions.csv");
-  const setRows = readCsv(dir, "honeycomb_settlements.csv");
-  const valRows = readCsv(dir, "honeycomb_validations.csv"); // decoded ValidationResponse events
+  const [agentRows, bountyRows, subRows, valRows, setRows, snap] = await Promise.all([
+    queryRows<AgentRow>(selectMarketAgentsSql()),
+    queryRows<BountyRow>(selectBountiesSql()),
+    queryRows<SubmissionRow>(selectSubmissionsSql()),
+    queryRows<ValidationRow>(selectValidationsSql()),
+    queryRows<SettlementRow>(selectSettlementsSql()),
+    loadSnapshot(),
+  ]);
+
+  // a bounty is settled iff a settlement was recorded for it
+  const settledIds = new Set(setRows.map((r) => Number(r.bounty_id)));
 
   const ownerOf = new Map<number, string>();
   const nameOf = new Map<number, string>();
   for (const r of agentRows) {
-    const id = num(r.agent_id);
+    const id = Number(r.agent_id);
     ownerOf.set(id, (r.owner || "").toLowerCase());
-    nameOf.set(id, r.name || `Agent #${id}`);
+    nameOf.set(id, `Agent #${id}`); // on-chain identity carries no name; resolved off-chain later
   }
 
-  // bounty lookup + per-bounty submission counts
   const subsPerBounty = new Map<number, number>();
   for (const r of subRows) {
-    const b = num(r.bounty_id);
+    const b = Number(r.bounty_id);
     subsPerBounty.set(b, (subsPerBounty.get(b) ?? 0) + 1);
   }
   const bountyById = new Map<number, Bounty>();
   const bounties: Bounty[] = bountyRows.map((r) => {
+    const id = Number(r.bounty_id);
     const b: Bounty = {
-      id: num(r.bounty_id),
+      id,
       requester: (r.requester || "").toLowerCase(),
       category: r.category,
       title: r.title,
-      rewardEth: num(r.reward_eth),
-      status: r.status === "open" ? "open" : "settled",
+      rewardEth: Number(r.reward_eth),
+      status: settledIds.has(id) ? "settled" : "open",
       createdAt: r.created_at,
       deadline: r.deadline,
-      submissions: subsPerBounty.get(num(r.bounty_id)) ?? 0,
+      submissions: subsPerBounty.get(id) ?? 0,
     };
-    bountyById.set(b.id, b);
+    bountyById.set(id, b);
     return b;
   });
 
   // global ERC-8004 trust score (live from BigQuery), for the cold-start prior
-  const snap = await loadSnapshot();
   const globalTrust = new Map<number, number>();
   for (const a of snap.agents) globalTrust.set(a.agentId, a.trustScore);
 
-  // index submissions + settlements by agent
-  const subsByAgent = new Map<number, typeof subRows>();
-  for (const r of subRows) {
-    const a = num(r.agent_id);
-    (subsByAgent.get(a) ?? subsByAgent.set(a, []).get(a)!).push(r);
-  }
-  const winsByAgent = new Map<number, typeof setRows>();
-  for (const r of setRows) {
-    const a = num(r.winner_agent_id);
-    (winsByAgent.get(a) ?? winsByAgent.set(a, []).get(a)!).push(r);
-  }
-  const valsByAgent = new Map<number, typeof valRows>();
-  for (const r of valRows) {
-    const a = num(r.agent_id);
-    (valsByAgent.get(a) ?? valsByAgent.set(a, []).get(a)!).push(r);
-  }
+  // index submissions, wins (settlements), validations by agent
+  const subsByAgent = new Map<number, SubmissionRow[]>();
+  for (const r of subRows) push(subsByAgent, Number(r.agent_id), r);
+  const winsByAgent = new Map<number, SettlementRow[]>();
+  for (const r of setRows) push(winsByAgent, Number(r.winner_agent_id), r);
+  const valsByAgent = new Map<number, ValidationRow[]>();
+  for (const r of valRows) push(valsByAgent, Number(r.agent_id), r);
 
   const agents: AgentReputation[] = agentRows.map((ar) => {
-    const agentId = num(ar.agent_id);
+    const agentId = Number(ar.agent_id);
     const owner = ownerOf.get(agentId)!;
     const mySubs = subsByAgent.get(agentId) ?? [];
     const myWins = winsByAgent.get(agentId) ?? [];
     const myVals = valsByAgent.get(agentId) ?? [];
 
-    // quality from the enclave's ValidationResponse events on SETTLED bounties:
-    // enclave_score = `response`, attestation_ok = `valid` (see honeycomb_validations.csv).
-    const graded = myVals.filter((v) => bountyById.get(num(v.bounty_id))?.status === "settled");
-    const scores = graded.map((v) => num(v.response));
+    // quality from the enclave's ValidationRecorded events on SETTLED bounties
+    const graded = myVals.filter((v) => bountyById.get(Number(v.bounty_id))?.status === "settled");
+    const scores = graded.map((v) => Number(v.response));
     const avgEnclaveScore = scores.length ? round1(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
     const validAttestationRate = graded.length
-      ? round1((graded.filter((v) => bool(v.valid)).length / graded.length) * 100) / 100
+      ? round1((graded.filter((v) => Boolean(v.valid)).length / graded.length) * 100) / 100
       : 1;
 
     // demand: distinct independent requesters among wins, self-dealing tagged
@@ -170,7 +186,7 @@ async function buildMarket(): Promise<Market> {
     let valueWonEth = 0;
     const independentRequesters = new Set<string>();
     for (const w of myWins) {
-      const b = bountyById.get(num(w.bounty_id));
+      const b = bountyById.get(Number(w.bounty_id));
       if (!b) continue;
       valueWonEth += b.rewardEth;
       if (b.requester === owner) selfDealtWins++;
@@ -184,12 +200,7 @@ async function buildMarket(): Promise<Market> {
     if (bountiesWon > 0 && avgEnclaveScore != null) {
       const selfShare = selfDealtWins / bountiesWon;
       honeycombScore = round1(
-        clamp(
-          avgEnclaveScore *
-            validAttestationRate *
-            (1 - 0.9 * selfShare) *
-            demandMultiplier(indep),
-        ),
+        clamp(avgEnclaveScore * validAttestationRate * (1 - 0.9 * selfShare) * demandMultiplier(indep)),
       );
     }
 
@@ -218,7 +229,7 @@ async function buildMarket(): Promise<Market> {
       agentId,
       name: nameOf.get(agentId)!,
       owner,
-      bountiesEntered: new Set(mySubs.map((s) => num(s.bounty_id))).size,
+      bountiesEntered: new Set(mySubs.map((s) => Number(s.bounty_id))).size,
       bountiesWon,
       independentRequesters: indep,
       selfDealtWins,

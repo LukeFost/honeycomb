@@ -7,22 +7,40 @@
 export const DATASET =
   "bigquery-public-data.goog_blockchain_ethereum_mainnet_us.logs";
 
-/** Canonical Ethereum Foundation ERC-8004 registry addresses (note the 0x8004… vanity). */
+/** Source logs table the decode/count SQL scans. Defaults to the real mainnet public table
+ *  (DATASET) so production behavior is unchanged; override with BQ_LOGS_TABLE to point the
+ *  SAME decode/count SQL at a fixture table for on-chain read-verification (a contract we
+ *  control on a local chain, indexed into a public-table-shaped fixture). Guarded like
+ *  HONEYCOMB_DATASET so the client bundle always renders the canonical mainnet table.
+ *  See docs/onchain-verification-plan.md §6 and tools/chain-verify/. */
+export const LOGS_TABLE =
+  (typeof process !== "undefined" ? process.env.BQ_LOGS_TABLE : undefined) || DATASET;
+
+/** Read an env var on the server (undefined on the client, where `process` is absent), so the
+ *  registry addresses/topics can be repointed at a local mock-contract chain for the
+ *  self-contained demo (tools/chain-verify) while defaulting to the real EF mainnet values. */
+function envVar(name: string): string | undefined {
+  return (typeof process !== "undefined" ? process.env[name] : undefined) || undefined;
+}
+
+/** ERC-8004 registries. address/topic0 default to the canonical EF mainnet contracts (note the
+ *  0x8004… vanity); override per-registry (BQ_IDENTITY_REGISTRY / BQ_IDENTITY_TOPIC0 /
+ *  BQ_REPUTATION_REGISTRY / BQ_REPUTATION_TOPIC0) to drive the pipeline from mock contracts. */
 export const REGISTRIES = {
   identity: {
     label: "Identity Registry",
-    address: "0x8004a169fb4a3325136eb29fa0ceb6d2e539a432",
-    // Registered(uint256 agentId, address owner, string metadataURI)
-    topic0:
-      "0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a",
+    address: (envVar("BQ_IDENTITY_REGISTRY") || "0x8004a169fb4a3325136eb29fa0ceb6d2e539a432").toLowerCase(),
+    // Registered(uint256 agentId, string metadataURI, address owner)
+    topic0: (envVar("BQ_IDENTITY_TOPIC0")
+      || "0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a").toLowerCase(),
     event: "Registered",
   },
   reputation: {
     label: "Reputation Registry",
-    address: "0x8004baa17c55a88189ae136b182e5fda19de9b63",
-    // NewFeedback(uint256 agentId, address client, uint256 value, uint8 decimals, ...)
-    topic0:
-      "0x6a4a61743519c9d648a14e6493f47dbe3ff1aa29e7785c96c8326a205e58febc",
+    address: (envVar("BQ_REPUTATION_REGISTRY") || "0x8004baa17c55a88189ae136b182e5fda19de9b63").toLowerCase(),
+    // NewFeedback(uint256 agentId, address client, uint256 value, uint8 decimals, …)
+    topic0: (envVar("BQ_REPUTATION_TOPIC0")
+      || "0x6a4a61743519c9d648a14e6493f47dbe3ff1aa29e7785c96c8326a205e58febc").toLowerCase(),
     event: "NewFeedback",
   },
 } as const;
@@ -35,8 +53,11 @@ export const REGISTRIES = {
 // erc-8004/erc-8004-contracts), so the address is configuration, not a hardcoded guess.
 // Set BQ_VALIDATION_REGISTRY to the EF address once it lands, or to Honeycomb's own
 // spec-conformant validator contract, and the live route + dashboard light it up.
-const _validationAddress =
-  (typeof process !== "undefined" ? process.env.BQ_VALIDATION_REGISTRY : undefined) ?? "";
+const _validationAddress = (envVar("BQ_VALIDATION_REGISTRY") || "").toLowerCase();
+// Override with BQ_VALIDATION_TOPIC0 to count a different verdict event (e.g. the demo escrow's
+// ValidationRecorded) in the live provenance panel; defaults to the canonical ValidationResponse.
+const _validationTopic0 = (envVar("BQ_VALIDATION_TOPIC0")
+  || "0xafddf629e874ccc3963b6a888c477bd464a6c8525024fc88759ea3b2326349ae").toLowerCase();
 
 export const VALIDATION_REGISTRY = {
   label: "Validation Registry",
@@ -47,7 +68,7 @@ export const VALIDATION_REGISTRY = {
     response: {
       name: "ValidationResponse",
       sig: "ValidationResponse(address,uint256,bytes32,uint8,string,bytes32,string)",
-      topic0: "0xafddf629e874ccc3963b6a888c477bd464a6c8525024fc88759ea3b2326349ae",
+      topic0: _validationTopic0,
     },
     request: {
       name: "ValidationRequest",
@@ -69,7 +90,7 @@ export const WINDOW = { start: "2026-05-14", end: "2026-06-12", days: 30 } as co
 /** A counting query for one registry event since `start`. Used live (dry-run + execute). */
 export function countSql(address: string, topic0: string, start: string): string {
   return `SELECT COUNT(*) AS n
-FROM \`${DATASET}\`
+FROM \`${LOGS_TABLE}\`
 WHERE address = '${address}'
   AND topics[SAFE_OFFSET(0)] = '${topic0}'
   AND block_timestamp >= TIMESTAMP('${start}')`;
@@ -131,7 +152,7 @@ export function decodeRegisteredSql(where = ""): string {
       block_number,
       transaction_hash                                 AS tx_hash,
       log_index
-    FROM \`${DATASET}\`
+    FROM \`${LOGS_TABLE}\`
     WHERE address = '${REGISTRIES.identity.address}'
       AND topics[SAFE_OFFSET(0)] = '${REGISTRIES.identity.topic0}'
       ${where}`;
@@ -149,7 +170,7 @@ export function decodeFeedbackSql(where = ""): string {
       block_number,
       transaction_hash                                       AS tx_hash,
       log_index
-    FROM \`${DATASET}\`
+    FROM \`${LOGS_TABLE}\`
     WHERE address = '${REGISTRIES.reputation.address}'
       AND topics[SAFE_OFFSET(0)] = '${REGISTRIES.reputation.topic0}'
       AND SUBSTR(data, 67, 1) != 'f'
@@ -401,4 +422,63 @@ export function storeMetaSql(ds = HONEYCOMB_DATASET): string {
       IFNULL((SELECT MAX(block_timestamp) FROM \`${ds}.feedback\`),     TIMESTAMP('1970-01-01'))
     ) AS as_of,
     (SELECT MAX(refreshed_at) FROM \`${ds}.refresh_log\`) AS last_refresh`;
+}
+
+// ===========================================================================
+// Layer 2 — the bounty market. Decoded from the (mock) Honeycomb escrow's events by the
+// indexer into these tables; reputation.ts reads them to build the earned-reputation
+// leaderboard. On mainnet these become SQL-decoded from the real escrow + Validation
+// Registry — the serving reads below stay identical.
+// ===========================================================================
+
+/** DDL for the Layer-2 market tables. Idempotent (CREATE … IF NOT EXISTS). */
+export function createMarketTablesSql(ds = HONEYCOMB_DATASET): string {
+  return `CREATE TABLE IF NOT EXISTS \`${ds}.bounties\` (
+  bounty_id INT64, requester STRING, category STRING, title STRING, reward_eth FLOAT64,
+  created_at TIMESTAMP, deadline TIMESTAMP, block_number INT64, tx_hash STRING, log_index INT64
+);
+CREATE TABLE IF NOT EXISTS \`${ds}.submissions\` (
+  bounty_id INT64, agent_id INT64, submission_cid STRING, submitted_at TIMESTAMP,
+  block_number INT64, tx_hash STRING, log_index INT64
+);
+CREATE TABLE IF NOT EXISTS \`${ds}.validations\` (
+  bounty_id INT64, agent_id INT64, validator STRING, response INT64, valid BOOL,
+  response_hash STRING, validated_at TIMESTAMP, block_number INT64, tx_hash STRING, log_index INT64
+);
+CREATE TABLE IF NOT EXISTS \`${ds}.settlements\` (
+  bounty_id INT64, winner_agent_id INT64, winner_score INT64, attestation_hash STRING,
+  settled_at TIMESTAMP, block_number INT64, tx_hash STRING, log_index INT64
+);`;
+}
+
+/** Serving reads for the Layer-2 market (small decoded tables — never the raw logs). */
+export function selectBountiesSql(ds = HONEYCOMB_DATASET): string {
+  return `SELECT bounty_id, requester, category, title, reward_eth,
+      FORMAT_TIMESTAMP('%Y-%m-%d', created_at) AS created_at,
+      FORMAT_TIMESTAMP('%Y-%m-%d', deadline)   AS deadline
+    FROM \`${ds}.bounties\` ORDER BY bounty_id`;
+}
+export function selectSubmissionsSql(ds = HONEYCOMB_DATASET): string {
+  return `SELECT bounty_id, agent_id, submission_cid FROM \`${ds}.submissions\``;
+}
+export function selectValidationsSql(ds = HONEYCOMB_DATASET): string {
+  return `SELECT bounty_id, agent_id, validator, response, valid, response_hash FROM \`${ds}.validations\``;
+}
+export function selectSettlementsSql(ds = HONEYCOMB_DATASET): string {
+  return `SELECT bounty_id, winner_agent_id, winner_score, attestation_hash FROM \`${ds}.settlements\``;
+}
+/** Layer-2 agents = registered agents (id + owner) that are relevant to the market: they have
+ *  on-chain reputation (appear in agent_trust) OR have participated (submitted / won a bounty).
+ *  Avoids listing every registration as a zero-signal "unproven" row in the leaderboard. */
+export function selectMarketAgentsSql(ds = HONEYCOMB_DATASET): string {
+  return `WITH latest AS (
+      SELECT agent_id, LOWER(owner) AS owner, agent_uri
+      FROM \`${ds}.registrations\`
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY agent_id ORDER BY block_number DESC, log_index DESC) = 1
+    )
+    SELECT agent_id, owner, agent_uri FROM latest
+    WHERE agent_id IN (SELECT agent_id FROM \`${ds}.agent_trust\`)
+       OR agent_id IN (SELECT agent_id FROM \`${ds}.submissions\`)
+       OR agent_id IN (SELECT winner_agent_id FROM \`${ds}.settlements\`)
+    ORDER BY agent_id`;
 }

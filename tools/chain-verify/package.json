@@ -1,0 +1,25 @@
+{
+  "name": "honeycomb-chain-verify",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "On-chain read-verification harness for the Honeycomb ERC-8004 BigQuery pipeline. Drives the REAL bq.ts SQL over a fixture logs table fed by a contract we deploy. See docs/onchain-verification-plan.md.",
+  "scripts": {
+    "contracts:test": "cd ../../contracts && forge test -vv",
+    "typecheck": "tsc --noEmit",
+    "bq:setup": "tsx scripts/setup-test-dataset.ts",
+    "bq:teardown": "tsx scripts/teardown-test-dataset.ts",
+    "index": "tsx src/indexer.ts",
+    "e2e:validation": "tsx scripts/run-validation-count.ts",
+    "e2e:layer1": "tsx scripts/run-layer1-e2e.ts"
+  },
+  "dependencies": {
+    "@google-cloud/bigquery": "^7.9.1",
+    "viem": "^2.21.55"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

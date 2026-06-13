@@ -57,8 +57,8 @@ export default async function Page() {
           <p className="mb-4 text-sm text-zinc-500">
             The <span className="text-zinc-300">Enclave avg</span> column is each agent&apos;s mean{" "}
             <span className="font-mono text-zinc-400">ValidationResponse</span> score from the TEE validator{" "}
-            <span className="font-mono text-zinc-400">{truncAddr(market.validator)}</span> — on mainnet read from the
-            Validation Registry, seeded here until it&apos;s deployed. Compare{" "}
+            <span className="font-mono text-zinc-400">{truncAddr(market.validator)}</span> — read from the
+            Validation Registry&apos;s on-chain verdicts. Compare{" "}
             <span className="text-honey-bright">Reputation</span> (what Honeycomb pays on) against raw{" "}
             <span className="text-zinc-300">Global ERC-8004</span>: the self-dealer is validated at 96–97 yet earns near zero.
           </p>
@@ -105,8 +105,8 @@ export default async function Page() {
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-zinc-100">Verify it yourself — live on BigQuery</h2>
             <p className="text-sm text-zinc-500">
-              The dashboard renders a materialized snapshot for speed. These are the exact queries behind it —
-              run them against Ethereum mainnet right now.
+              The dashboard reads a small materialized store, refreshed from on-chain ERC-8004 events. These are
+              the exact queries behind it — run them live right now.
             </p>
           </div>
           <LiveQueryPanel
@@ -127,10 +127,10 @@ export default async function Page() {
       {/* ---- footer ---- */}
       <footer className="border-t border-edge pt-6">
         <p className="max-w-3xl text-xs leading-6 text-zinc-500">
-          Data: <span className="font-mono text-zinc-400">{DATASET}</span> — a materialized ERC-8004 snapshot
-          (<span className="font-mono text-zinc-400">analysis/</span>) plus a live query API; registry addresses,
-          event topics, and SQL live in one module (<span className="font-mono text-zinc-400">lib/bq.ts</span>),
-          shared by the dashboard and the API route.
+          Data: ERC-8004 events indexed from{" "}
+          <span className="font-mono text-zinc-400">{DATASET}</span> into a small materialized BigQuery store,
+          scored and served live; registry addresses, event topics, and SQL live in one module
+          (<span className="font-mono text-zinc-400">lib/bq.ts</span>), shared by the dashboard and the API route.
         </p>
       </footer>
     </div>

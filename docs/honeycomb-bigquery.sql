@@ -32,6 +32,26 @@ CREATE TABLE IF NOT EXISTS `honeycomb.refresh_log` (
   registrations_added INT64, feedback_added INT64
 );
 
+-- ---- Layer 2: the bounty market (decoded from the Honeycomb escrow's events) -----
+-- reputation.ts reads these. Empty until the escrow ships on mainnet; populated by the
+-- indexer in the local demo (tools/chain-verify). Generated from createMarketTablesSql in bq.ts.
+CREATE TABLE IF NOT EXISTS `honeycomb.bounties` (
+  bounty_id INT64, requester STRING, category STRING, title STRING, reward_eth FLOAT64,
+  created_at TIMESTAMP, deadline TIMESTAMP, block_number INT64, tx_hash STRING, log_index INT64
+);
+CREATE TABLE IF NOT EXISTS `honeycomb.submissions` (
+  bounty_id INT64, agent_id INT64, submission_cid STRING, submitted_at TIMESTAMP,
+  block_number INT64, tx_hash STRING, log_index INT64
+);
+CREATE TABLE IF NOT EXISTS `honeycomb.validations` (
+  bounty_id INT64, agent_id INT64, validator STRING, response INT64, valid BOOL,
+  response_hash STRING, validated_at TIMESTAMP, block_number INT64, tx_hash STRING, log_index INT64
+);
+CREATE TABLE IF NOT EXISTS `honeycomb.settlements` (
+  bounty_id INT64, winner_agent_id INT64, winner_score INT64, attestation_hash STRING,
+  settled_at TIMESTAMP, block_number INT64, tx_hash STRING, log_index INT64
+);
+
 -- ---- the loop: incremental MERGE from the watermark (schedule `CALL honeycomb.refresh()`) ----
 CREATE OR REPLACE PROCEDURE `honeycomb.refresh`()
 BEGIN

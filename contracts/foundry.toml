@@ -1,0 +1,9 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+# Pin to a locally-cached solc so `forge test` runs fully offline.
+solc_version = "0.8.27"
+# This package intentionally has no external deps (no forge-std): the test declares a
+# minimal Vm cheatcode interface inline so it builds without `forge install`.
