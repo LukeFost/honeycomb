@@ -1,0 +1,35 @@
+# Build context is the repo root but only apps/web is built. Keep the context lean
+# and make CERTAIN no credentials or local build output are ever sent to the daemon.
+
+# secrets — never ship these into a build context
+**/.secrets/
+**/gcp-key.json
+**/.env
+**/.env.*
+!**/.env.example
+**/run-with-secrets.sh
+
+# vcs + tooling scratch
+.git/
+.codex-lanes/
+**/.DS_Store
+
+# node + next build output (rebuilt inside the image)
+**/node_modules/
+**/.next/
+**/.next-verify/
+**/out/
+**/dist/
+
+# unrelated apps — only apps/web is built, drop the heavy siblings from the context
+apps/grading-cre/
+apps/strategy-vault/
+apps/tee-runner/
+apps/uniswap-lp/
+apps/x402-facilitator/
+apps/honeycomb-api/
+apps/honeycomb-mcp/
+
+# docs / misc
+**/*.md
+**/coverage/

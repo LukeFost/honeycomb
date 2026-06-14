@@ -30,17 +30,19 @@ export function findKey(): string | null {
 }
 
 async function build(): Promise<BigQuery> {
+  // Two credential paths. Locally we find the gitignored key file. On Cloud Run there is
+  // NO key file (a key in the image would be a leak): we fall back to Application Default
+  // Credentials, which the BigQuery client reads from the bound runtime service account via
+  // the metadata server. Either way the project comes from BQ_BILLING_PROJECT (set explicitly
+  // on Cloud Run), the key file's project_id, or ADC's own project resolution.
   const keyFile = findKey();
-  if (!keyFile) {
-    throw new BigQueryUnavailableError(
-      "Service-account key not found. Place it at honeycomb/.secrets/gcp-key.json (or set GOOGLE_APPLICATION_CREDENTIALS).",
-    );
-  }
   let projectId: string | undefined = process.env.BQ_BILLING_PROJECT;
-  try {
-    projectId = projectId ?? JSON.parse(fs.readFileSync(keyFile, "utf8")).project_id;
-  } catch {
-    /* fall through; the client may still resolve a project */
+  if (keyFile) {
+    try {
+      projectId = projectId ?? JSON.parse(fs.readFileSync(keyFile, "utf8")).project_id;
+    } catch {
+      /* fall through; the client may still resolve a project */
+    }
   }
   let Ctor: typeof import("@google-cloud/bigquery").BigQuery;
   try {
@@ -50,7 +52,9 @@ async function build(): Promise<BigQuery> {
       "@google-cloud/bigquery is not installed. Run: pnpm --filter web add @google-cloud/bigquery",
     );
   }
-  return new Ctor({ keyFilename: keyFile, projectId });
+  // keyFilename when we have a key (local); omit it to let the SDK use ADC (Cloud Run).
+  // A bad/absent SA still fails loudly at query time — not silently swallowed here.
+  return keyFile ? new Ctor({ keyFilename: keyFile, projectId }) : new Ctor({ projectId });
 }
 
 let client: Promise<BigQuery> | null = null;
