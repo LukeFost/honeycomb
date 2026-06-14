@@ -19,15 +19,15 @@ type Kind = "prism" | "hive" | "db" | "comb" | "user" | "escrow" | "monitor" | "
 type NodeT = { x: number; z: number; pulse: number; label: string; tag: string; logos: string[]; kind: Kind; mon?: "ai" | "score" };
 
 const NODES: NodeT[] = [
-  { x: -5.2, z: -0.6, pulse: 0, label: "User", tag: "client", logos: [], kind: "user" },
-  { x: -4.3, z: 1.4, pulse: 0, label: "Escrow", tag: "BountyEscrow.sol", logos: [], kind: "escrow" },
-  { x: -1.9, z: 3.3, pulse: 0, label: "Bounty", tag: "ERC-8183", logos: ["uniswap"], kind: "comb" },
-  { x: -1.7, z: 1.0, pulse: 0, label: "BigQuery", tag: "discovery", logos: ["google"], kind: "db" },
-  { x: -3.6, z: -1.4, pulse: 0, label: "Hive", tag: "agents", logos: ["claudecode", "openai"], kind: "hive" },
-  { x: 0.7, z: 0.3, pulse: 0, label: "AI Tester", tag: "Chainlink · TEE", logos: ["chainlink"], kind: "monitor", mon: "ai" },
-  { x: 2.7, z: 1.5, pulse: 0, label: "Scorer", tag: "Google · TEE", logos: ["google"], kind: "monitor", mon: "score" },
-  { x: 3.4, z: -1.2, pulse: 0, label: "CRE", tag: "settlement", logos: ["chainlink"], kind: "cre" },
-  { x: 4.8, z: 0.4, pulse: 0, label: "Payout", tag: "USDC", logos: [], kind: "prism" },
+  { x: -7.0, z: -0.5, pulse: 0, label: "User", tag: "client", logos: [], kind: "user" },
+  { x: -6.2, z: 1.6, pulse: 0, label: "Escrow", tag: "BountyEscrow.sol", logos: [], kind: "escrow" },
+  { x: -3.9, z: 3.5, pulse: 0, label: "Bounty", tag: "ERC-8183", logos: ["uniswap"], kind: "comb" },
+  { x: -3.3, z: 0.9, pulse: 0, label: "BigQuery", tag: "discovery", logos: ["google"], kind: "db" },
+  { x: -5.2, z: -2.1, pulse: 0, label: "Hive", tag: "agents", logos: ["claudecode", "openai"], kind: "hive" },
+  { x: -0.5, z: 0.1, pulse: 0, label: "AI Tester", tag: "Chainlink · TEE", logos: ["chainlink"], kind: "monitor", mon: "ai" },
+  { x: 2.1, z: 1.3, pulse: 0, label: "Scorer", tag: "Google · TEE", logos: ["google"], kind: "monitor", mon: "score" },
+  { x: 3.7, z: -1.5, pulse: 0, label: "CRE", tag: "settlement", logos: ["chainlink"], kind: "cre" },
+  { x: 5.5, z: 0.6, pulse: 0, label: "Payout", tag: "USDC", logos: [], kind: "prism" },
 ];
 const USER = 0, ESCROW = 1, BOUNTY = 2, BIGQUERY = 3, HIVE = 4, AITESTER = 5, SCORER = 6, CRE = 7, PAYOUT = 8;
 
@@ -127,19 +127,16 @@ export default function HowItWorks() {
     })();
 
     function layout() {
-      scale = Math.max(20, Math.min(36, width / 30));
+      scale = Math.max(24, Math.min(40, width / 24));
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       ox = 0; oy = 0;
       for (const n of NODES) {
-        const hh = hOf(n);
-        for (let i = 0; i < 6; i++) for (const y of [0, hh]) {
-          const a = (Math.PI / 3) * i + Math.PI / 6;
-          const p = projRaw(n.x + R * Math.cos(a), y, n.z + R * Math.sin(a));
-          minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-        }
+        const p = projRaw(n.x, 0, n.z);
+        minX = Math.min(minX, p.x - R * scale); maxX = Math.max(maxX, p.x + R * scale);
+        minY = Math.min(minY, p.y - R * scale); maxY = Math.max(maxY, p.y + R * scale);
       }
       ox = width / 2 - (minX + maxX) / 2;
-      oy = height / 2 - (minY + maxY) / 2 + 8;
+      oy = height / 2 - (minY + maxY) / 2 - 18;
     }
 
     function resize() {
