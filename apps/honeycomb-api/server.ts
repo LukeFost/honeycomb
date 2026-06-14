@@ -199,16 +199,14 @@ async function route(req: Request): Promise<Response> {
 		);
 	}
 
-	// --- guarded read: Cloud Logging --------------------------------------------
-	// GET /logs reads the deployed service's own Cloud Logging entries. It's a
-	// READ, but log text can carry internal detail (RPC hosts, error internals),
-	// so it's token-gated like a write route rather than left public. The web
-	// /ops admin panel reaches it only in dev mode (where the token exists), so
-	// the public deployed page never surfaces logs.
+	// GET /logs reads the deployed service's own Cloud Logging entries. PUBLIC
+	// (no token): anyone, incl. a demo viewer, can see what the services are doing.
+	// Safety is redaction at the source, not a gate — readLogs() scrubs secrets
+	// (API keys, bearer tokens, private-key-shaped hex) out of every line before
+	// it returns; public data (addresses, tx hashes, paths, errors) stays visible.
 	//   ?service=honeycomb-api|honeycomb-web  ?limit=100  ?sinceMinutes=60
 	//   ?minSeverity=WARNING|ERROR  ?contains=<substring>
 	if (m === "GET" && pathname === "/logs") {
-		requireWriteAuth(req);
 		const sev = url.searchParams.get("minSeverity");
 		const contains = url.searchParams.get("contains");
 		return json(
