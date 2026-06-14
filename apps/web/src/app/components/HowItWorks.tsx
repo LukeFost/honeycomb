@@ -11,46 +11,50 @@ import { useEffect, useRef, useState } from "react";
 // ============================================================================
 
 type Kind = "prism" | "hive" | "db" | "comb" | "user" | "escrow" | "monitor" | "cre";
-type NodeT = { x: number; z: number; pulse: number; label: string; tag: string; logos: string[]; kind: Kind; mon?: "ai" | "score"; appearAt: number };
+type NodeT = { x: number; z: number; pulse: number; label: string; tag: string; logos: string[]; kind: Kind; mon?: "ai" | "score" | "bot"; appearAt: number };
 
 // timeline (ms)
-const CYCLE = 25500;
+const CYCLE = 35500;
 const FUND_END = 3400;
 const DISCOVER_END = 6000;
 const SWARM_END = 8400;
 const SOL_START = 8400;
-const SOL_STAGGER = 1700;
-const SEG1 = 2200; // bounty → graders
-const GRADE = 1800; // graders run in parallel
-const SEG2 = 2200; // graders → contract (converge)
-const REJECT = 1700; // invalid slides aside
-const SETTLE_START = 21500;
+const SEG1 = 1500; // bounty → graders
+const GRADE = 1300; // graders run
+const SEG2 = 1500; // graders → contract
+const REJECT = 1300; // invalid slides aside
+const SOL_STAGGER = 4600; // strictly one at a time: next waits until the one ahead finishes
+const SETTLE_START = 27000; // settle + pay the winner
+const RETURN_START = 28800; // winning strategy returns to the user
+const DEPLOY_START = 30500; // strategy deployed to the Uniswap bot
 const solSpawn = (i: number) => SOL_START + i * SOL_STAGGER;
 const SCORED = SEG1 + GRADE + SEG2; // per-solution time to reach the contract
 
 // vertical layout: larger (x+z) = lower on screen, so the flow goes up as it
 // progresses. The two graders share a height (parallel) and converge to CRE.
 const NODES: NodeT[] = [
-  { x: 5.0, z: 5.0, pulse: 0, label: "User", tag: "client", logos: [], kind: "user", appearAt: 0 },
-  { x: 3.2, z: 3.2, pulse: 0, label: "Escrow", tag: "BountyEscrow.sol", logos: [], kind: "escrow", appearAt: 500 },
-  { x: 1.4, z: 1.4, pulse: 0, label: "Bounty", tag: "ERC-8183", logos: ["uniswap"], kind: "comb", appearAt: 2600 },
-  { x: 3.65, z: -0.85, pulse: 0, label: "BigQuery", tag: "discovery", logos: ["google"], kind: "db", appearAt: 3400 },
-  { x: -0.45, z: 4.05, pulse: 0, label: "Hive", tag: "agents", logos: ["claudecode", "openai"], kind: "hive", appearAt: 5200 },
-  { x: -2.3, z: 1.7, pulse: 0, label: "AI Tester", tag: "Chainlink · TEE", logos: ["chainlink"], kind: "monitor", mon: "ai", appearAt: 7900 },
-  { x: 1.7, z: -2.3, pulse: 0, label: "Scorer", tag: "Google · TEE", logos: ["google"], kind: "monitor", mon: "score", appearAt: 7900 },
-  { x: -2.0, z: -2.0, pulse: 0, label: "CRE / Contract", tag: "settlement", logos: ["chainlink"], kind: "cre", appearAt: 10800 },
-  { x: -3.75, z: -3.75, pulse: 0, label: "Payout", tag: "USDC", logos: [], kind: "prism", appearAt: 20800 },
+  { x: 6.0, z: 6.0, pulse: 0, label: "User", tag: "client", logos: [], kind: "user", appearAt: 0 },
+  { x: 3.2, z: 3.2, pulse: 0, label: "Escrow", tag: "contract", logos: [], kind: "escrow", appearAt: 500 },
+  { x: 1.0, z: 1.0, pulse: 0, label: "Bounty", tag: "ERC-8183", logos: ["uniswap"], kind: "comb", appearAt: 2600 },
+  { x: 4.15, z: -1.35, pulse: 0, label: "BigQuery", tag: "discovery", logos: ["google"], kind: "db", appearAt: 3400 },
+  { x: -1.35, z: 4.15, pulse: 0, label: "Hive", tag: "agents", logos: ["claudecode", "openai"], kind: "hive", appearAt: 5200 },
+  { x: -3.05, z: -0.85, pulse: 0, label: "AI Tester", tag: "Chainlink · TEE", logos: ["chainlink"], kind: "monitor", mon: "ai", appearAt: 7900 },
+  { x: -0.85, z: -3.05, pulse: 0, label: "Scorer", tag: "Google · TEE", logos: ["google"], kind: "monitor", mon: "score", appearAt: 7900 },
+  { x: -4.0, z: -4.0, pulse: 0, label: "CRE", tag: "settlement", logos: ["chainlink"], kind: "cre", appearAt: 10800 },
+  { x: -6.0, z: -6.0, pulse: 0, label: "Payout", tag: "USDC", logos: [], kind: "prism", appearAt: 26000 },
+  { x: 6.5, z: 3.0, pulse: 0, label: "Uniswap Bot", tag: "runs on CRE", logos: ["uniswap", "chainlink"], kind: "monitor", mon: "bot", appearAt: 22900 },
 ];
-const USER = 0, ESCROW = 1, BOUNTY = 2, BIGQUERY = 3, HIVE = 4, AITESTER = 5, SCORER = 6, CRE = 7, PAYOUT = 8;
+const USER = 0, ESCROW = 1, BOUNTY = 2, BIGQUERY = 3, HIVE = 4, AITESTER = 5, SCORER = 6, CRE = 7, PAYOUT = 8, BOT = 9;
 
 const STEPS = [
   { label: "Fund", tech: "BountyEscrow.sol", desc: "A user funds the escrow contract; the bounty is posted as a half-built honeycomb." },
   { label: "Discover", tech: "Google BigQuery", desc: "BigQuery indexes the on-chain job and notifies the hive that work is available." },
   { label: "Swarm", tech: "Claude + Codex agents", desc: "The hive dispatches a swarm of agents to work on the bounty." },
   { label: "Propose", tech: "encrypted strategies", desc: "Each agent submits a competing strategy — a price model — one at a time." },
-  { label: "Grade", tech: "Chainlink AI + Google · TEE", desc: "Two enclaves run in parallel: one attests validity, one scores blind. Cheats that just shoot straight up are rejected." },
+  { label: "Grade", tech: "Chainlink AI + Google · TEE", desc: "Two enclaves run in parallel: one attests validity, one scores blind. Cheats that just shoot straight up are rejected — and the agent's ERC-8004 reputation takes a hit." },
   { label: "Rank", tech: "leaderboard", desc: "Valid results converge to the contract and are ranked on a leaderboard." },
-  { label: "Settle & pay", tech: "Chainlink CRE → escrow", desc: "CRE settles on-chain and the escrow releases USDC to the winner." },
+  { label: "Settle & pay", tech: "Chainlink CRE → escrow", desc: "CRE settles on-chain and the escrow releases USDC to the winning agent." },
+  { label: "Deploy & run", tech: "Uniswap bot on CRE", desc: "The winning strategy is returned to the user and runs live on an independent Uniswap bot via CRE." },
 ];
 
 const OPTIONS = [
@@ -112,13 +116,13 @@ export default function HowItWorks() {
     const av = (n: NodeT, ct: number) => clamp01((ct - n.appearAt) / 450);
 
     const COMB = (() => {
-      const b = NODES[BOUNTY]; const cr = 0.4; const dx = Math.sqrt(3) * cr, dy = 1.5 * cr;
+      const b = NODES[BOUNTY]; const cr = 0.32; const dx = Math.sqrt(3) * cr, dy = 1.5 * cr;
       const offs: [number, number][] = [[0, 0], [dx, 0], [-dx, 0], [dx / 2, -dy], [-dx / 2, -dy], [dx / 2, dy], [-dx / 2, dy]];
       return offs.map(([qx, qz]) => ({ x: b.x + qx, z: b.z + qz, r: cr }));
     })();
 
     function layout() {
-      scale = Math.max(22, Math.min(42, Math.min(width / 22, height / 13)));
+      scale = Math.max(18, Math.min(36, Math.min(width / 26, height / 15)));
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       ox = 0; oy = 0;
       for (const n of NODES) {
@@ -177,7 +181,7 @@ export default function HowItWorks() {
       ctx!.beginPath(); ctx!.ellipse(top.x, top.y, rx, ry, 0, 0, Math.PI * 2); ctx!.fillStyle = mix([66, 133, 244], [150, 190, 255], n.pulse); ctx!.fill(); ctx!.strokeStyle = "rgba(20,38,90,0.5)"; ctx!.stroke();
     }
     function drawUser(n: NodeT) {
-      const c = proj(n.x, 0.7, n.z); const r = R * scale * 0.5;
+      const c = proj(n.x, 0.42, n.z); const r = R * scale * 0.5;
       ctx!.beginPath(); ctx!.arc(c.x, c.y, r, 0, Math.PI * 2); ctx!.fillStyle = mix([90, 100, 120], [140, 160, 190], n.pulse); ctx!.fill();
       ctx!.lineWidth = 2; ctx!.strokeStyle = "rgba(30,36,48,0.7)"; ctx!.stroke();
       ctx!.fillStyle = "rgba(255,255,255,0.92)";
@@ -185,7 +189,7 @@ export default function HowItWorks() {
       ctx!.beginPath(); ctx!.arc(c.x, c.y + r * 0.55, r * 0.5, Math.PI, 0); ctx!.fill();
     }
     function drawEscrow(n: NodeT, funded: number) {
-      const w = R * 0.7, d = R * 0.5, h = H * 0.9;
+      const w = R * 0.7, d = R * 0.5, h = H * 0.8;
       const p = (dx: number, dz: number, y: number) => proj(n.x + dx, y, n.z + dz);
       const tA = p(-w, -d, h), tB = p(w, -d, h), tC = p(w, d, h), tD = p(-w, d, h);
       const bB = p(w, -d, 0), bC = p(w, d, 0), bD = p(-w, d, 0);
@@ -198,7 +202,7 @@ export default function HowItWorks() {
     }
     function drawMonitor(n: NodeT, content: (x: number, y: number, w: number, h: number) => void) {
       const c = proj(n.x, 1.05, n.z); const g = ground(n);
-      const sw = Math.max(78, scale * 2.5), sh = sw * 0.62;
+      const sw = Math.max(70, scale * 2.05), sh = sw * 0.62;
       ctx!.strokeStyle = "rgba(40,40,48,0.5)"; ctx!.lineWidth = 4; ctx!.beginPath(); ctx!.moveTo(c.x, c.y + sh / 2); ctx!.lineTo(g.x, g.y - 4); ctx!.stroke();
       ctx!.beginPath(); ctx!.ellipse(g.x, g.y, sw * 0.22, sw * 0.22 * ISO_SIN, 0, 0, Math.PI * 2); ctx!.fillStyle = "rgba(40,40,48,0.7)"; ctx!.fill();
       ctx!.beginPath(); ctx!.roundRect(c.x - sw / 2, c.y - sh / 2, sw, sh, 7);
@@ -236,10 +240,10 @@ export default function HowItWorks() {
       ctx!.fillStyle = BODY; ctx!.fill(); ctx!.lineWidth = r * 0.16; ctx!.strokeStyle = DARK; ctx!.stroke(); ctx!.restore();
     }
     function drawSolutionToken(x: number, y: number, o: typeof OPTIONS[number], alpha = 1) {
-      ctx!.save(); ctx!.globalAlpha = alpha; ctx!.translate(x, y); const r = 12;
-      ctx!.shadowColor = o.color; ctx!.shadowBlur = 10; ctx!.beginPath(); ctx!.arc(0, 0, r, 0, Math.PI * 2); ctx!.fillStyle = o.color; ctx!.fill(); ctx!.shadowBlur = 0;
-      ctx!.lineWidth = 2; ctx!.strokeStyle = "rgba(255,255,255,0.9)"; ctx!.stroke();
-      ctx!.fillStyle = "#fff"; ctx!.font = "700 12px var(--font-geist-mono), monospace"; ctx!.textAlign = "center"; ctx!.textBaseline = "middle"; ctx!.fillText(o.id, 0, 0.5); ctx!.restore();
+      ctx!.save(); ctx!.globalAlpha = alpha; ctx!.translate(x, y); const r = 9;
+      ctx!.shadowColor = o.color; ctx!.shadowBlur = 8; ctx!.beginPath(); ctx!.arc(0, 0, r, 0, Math.PI * 2); ctx!.fillStyle = o.color; ctx!.fill(); ctx!.shadowBlur = 0;
+      ctx!.lineWidth = 1.6; ctx!.strokeStyle = "rgba(255,255,255,0.9)"; ctx!.stroke();
+      ctx!.fillStyle = "#fff"; ctx!.font = "700 10px var(--font-geist-mono), monospace"; ctx!.textAlign = "center"; ctx!.textBaseline = "middle"; ctx!.fillText(o.id, 0, 0.5); ctx!.restore();
     }
     // name on top, icons BELOW the name, tag under the icons
     function drawLabel(n: NodeT) {
@@ -249,7 +253,7 @@ export default function HowItWorks() {
       ctx!.fillStyle = "rgba(26,29,35,0.95)"; ctx!.font = "700 12px var(--font-geist-sans), system-ui, sans-serif"; ctx!.fillText(n.label, base.x, y);
       y += 16;
       if (n.logos.length) {
-        const s = 15, gap = 5; const total = n.logos.length * s + (n.logos.length - 1) * gap;
+        const s = 18, gap = 5; const total = n.logos.length * s + (n.logos.length - 1) * gap;
         let lx = base.x - total / 2 + s / 2;
         for (const name of n.logos) { drawLogo(lx, y + s / 2, s, name); lx += s + gap; }
         y += s + 4;
@@ -289,16 +293,18 @@ export default function HowItWorks() {
       const ct = reduce ? 18500 : now % CYCLE;
       if (ct < lastCt) for (const r of rows) r.y = null;
       lastCt = ct;
-      const st = ct < FUND_END ? 0 : ct < DISCOVER_END ? 1 : ct < SWARM_END ? 2 : ct < SOL_START + SEG1 ? 3 : ct < solSpawn(3) + SEG1 + GRADE ? 4 : ct < SETTLE_START ? 5 : 6;
+      const botOn = ct >= DEPLOY_START + 1500; // bot only runs once the strategy has arrived
+      const st = ct < FUND_END ? 0 : ct < DISCOVER_END ? 1 : ct < SWARM_END ? 2 : ct < SOL_START + SEG1 ? 3 : ct < solSpawn(3) + SEG1 + GRADE ? 4 : ct < SETTLE_START ? 5 : ct < RETURN_START ? 6 : 7;
       if (st !== lastStep) { lastStep = st; setStep(st); }
 
       for (const n of NODES) n.pulse *= 0.93;
       NODES[HIVE].pulse = Math.max(NODES[HIVE].pulse, av(NODES[HIVE], ct) * (0.22 + 0.12 * Math.sin(now * 0.004)));
+      if (botOn) NODES[BOT].pulse = Math.max(NODES[BOT].pulse, 0.45);
 
       ctx!.clearRect(0, 0, width, height);
 
-      const combFill = ct < FUND_END ? lerp(0, 0.5, easeInOut(ct / FUND_END)) : ct > SETTLE_START ? lerp(0.5, 1, easeInOut(clamp01((ct - SETTLE_START) / (CYCLE - SETTLE_START)))) : 0.5;
-      const combGlow = clamp01((ct - SETTLE_START) / (CYCLE - SETTLE_START));
+      const combFill = ct < FUND_END ? lerp(0, 0.5, easeInOut(ct / FUND_END)) : ct > SETTLE_START ? lerp(0.5, 1, easeInOut(clamp01((ct - SETTLE_START) / 1600))) : 0.5;
+      const combGlow = clamp01((ct - SETTLE_START) / 1600);
       const funded = clamp01((ct - 600) / 1200);
 
       for (const n of NODES) if (av(n, ct) > 0.02) drawShadow(n);
@@ -314,6 +320,7 @@ export default function HowItWorks() {
       drawRail(anchor(NODES[AITESTER]), anchor(NODES[CRE]), ra(AITESTER, CRE));
       drawRail(anchor(NODES[SCORER]), anchor(NODES[CRE]), ra(SCORER, CRE));
       drawRail(anchor(NODES[CRE]), anchor(NODES[PAYOUT]), ra(CRE, PAYOUT));
+      drawRail(proj(NODES[USER].x, 0.42, NODES[USER].z), anchor(NODES[BOT]), ra(USER, BOT), true);
 
       // fund coin
       if (ct < FUND_END && ct > 400) {
@@ -335,33 +342,34 @@ export default function HowItWorks() {
       // solutions: rise to BOTH graders in parallel, then converge to the contract
       type Tok = { x: number; y: number; o: typeof OPTIONS[number]; alpha: number };
       const toks: Tok[] = [];
+      const repHits: { x: number; y: number; alpha: number }[] = [];
       let aiVerdict: { valid: boolean; oi: number } | null = null;
       let scoreRun: { o: typeof OPTIONS[number]; oi: number; prog: number } | null = null;
       OPTIONS.forEach((o, i) => {
         const sp = solSpawn(i); const el = ct - sp; if (el < 0) return;
         const bP = ground(NODES[BOUNTY]); const aiP = anchor(NODES[AITESTER]); const scP = anchor(NODES[SCORER]); const crP = anchor(NODES[CRE]);
+        // one token rises up the middle between the two graders, which flank it
+        const M = { x: (aiP.x + scP.x) / 2, y: (aiP.y + scP.y) / 2 };
         if (el < SEG1) {
           const lt = easeInOut(el / SEG1);
-          toks.push({ x: lerp(bP.x, aiP.x, lt), y: lerp(bP.y, aiP.y, lt) - Math.sin(lt * Math.PI) * 8, o, alpha: 1 });
-          toks.push({ x: lerp(bP.x, scP.x, lt), y: lerp(bP.y, scP.y, lt) - Math.sin(lt * Math.PI) * 8, o, alpha: 1 });
+          toks.push({ x: lerp(bP.x, M.x, lt), y: lerp(bP.y, M.y, lt) - Math.sin(lt * Math.PI) * 8, o, alpha: 1 });
         } else if (el < SEG1 + GRADE) {
           aiVerdict = { valid: o.valid, oi: i }; NODES[AITESTER].pulse = 1;
           if (o.valid) { scoreRun = { o, oi: i, prog: clamp01((el - SEG1) / GRADE) }; NODES[SCORER].pulse = 1; }
-          toks.push({ x: aiP.x, y: aiP.y - 30, o, alpha: 1 });
-          toks.push({ x: scP.x, y: scP.y - 30, o, alpha: 1 });
+          toks.push({ x: M.x, y: M.y, o, alpha: 1 });
         } else if (o.valid) {
           if (el < SEG1 + GRADE + SEG2) {
             const lt = easeInOut((el - SEG1 - GRADE) / SEG2);
-            toks.push({ x: lerp(aiP.x, crP.x, lt), y: lerp(aiP.y - 30, crP.y, lt) - Math.sin(lt * Math.PI) * 8, o, alpha: 1 });
-            toks.push({ x: lerp(scP.x, crP.x, lt), y: lerp(scP.y - 30, crP.y, lt) - Math.sin(lt * Math.PI) * 8, o, alpha: 1 });
+            toks.push({ x: lerp(M.x, crP.x, lt), y: lerp(M.y, crP.y, lt) - Math.sin(lt * Math.PI) * 8, o, alpha: 1 });
             if (lt > 0.8) NODES[CRE].pulse = 1;
           }
         } else {
           const rel = el - SEG1 - GRADE;
           if (rel < REJECT) {
             const lt = easeInOut(clamp01(rel / REJECT)); const a = 1 - clamp01((rel - REJECT * 0.45) / (REJECT * 0.55));
-            toks.push({ x: lerp(aiP.x, aiP.x - scale * 1.3, lt), y: lerp(aiP.y - 30, aiP.y + scale * 1.2, lt), o, alpha: a });
-            toks.push({ x: lerp(scP.x, scP.x + scale * 1.3, lt), y: lerp(scP.y - 30, scP.y + scale * 1.2, lt), o, alpha: a });
+            const rx = lerp(M.x, M.x - scale * 2.0, lt), ry = lerp(M.y, M.y + scale * 1.3, lt);
+            toks.push({ x: rx, y: ry, o, alpha: a });
+            repHits.push({ x: rx, y: ry - 18, alpha: a }); // the cheating agent loses reputation
           }
         }
       });
@@ -388,12 +396,18 @@ export default function HowItWorks() {
               ctx!.fillText(v.valid ? "VALID ✓" : "INVALID ✗", x + w / 2, y + h * 0.8);
             }
           });
-          else drawMonitor(n, (x, y, w, h) => {
+          else if (n.mon === "score") drawMonitor(n, (x, y, w, h) => {
             const s = scoreRun as { o: typeof OPTIONS[number]; oi: number; prog: number } | null;
             if (s) {
               drawChartInBox(x + 4, y + 4, w - 8, h - 16, chartPts(s.oi, false), s.o.color, s.prog);
               ctx!.fillStyle = "#cfe8d6"; ctx!.font = `700 ${Math.round(h * 0.22)}px var(--font-geist-mono), monospace`; ctx!.textAlign = "left"; ctx!.textBaseline = "bottom"; ctx!.fillText(`score ${Math.round(s.o.score * s.prog)}`, x + 5, y + h - 3);
             }
+          });
+          else drawMonitor(n, (x, y, w, h) => {
+            if (!botOn) return; // screen stays off until the strategy has arrived
+            // independent Uniswap bot running the winning strategy live
+            drawChartInBox(x + 4, y + 4, w - 8, h - 16, chartPts((Math.floor(now / 480) % 6) + 30, false), "#ff4da6", 1);
+            ctx!.fillStyle = "#ffd0e8"; ctx!.font = `700 ${Math.round(h * 0.22)}px var(--font-geist-mono), monospace`; ctx!.textAlign = "left"; ctx!.textBaseline = "bottom"; ctx!.fillText("● LIVE", x + 5, y + h - 3);
           });
         }
         else drawPrismH(n, 1, mix(TOP_BASE, TOP_HOT, n.pulse));
@@ -418,16 +432,40 @@ export default function HowItWorks() {
       }
 
       for (const t of toks) drawSolutionToken(t.x, t.y, t.o, t.alpha);
+      // the cheating agent takes a reputation hit
+      for (const h of repHits) {
+        ctx!.save(); ctx!.globalAlpha = h.alpha; ctx!.translate(h.x, h.y);
+        ctx!.fillStyle = "#d23f3f"; ctx!.beginPath(); ctx!.roundRect(-30, -10, 60, 20, 10); ctx!.fill();
+        ctx!.fillStyle = "#fff"; ctx!.font = "700 10px var(--font-geist-mono), monospace"; ctx!.textAlign = "center"; ctx!.textBaseline = "middle"; ctx!.fillText("rep −1 ↓", 0, 0.5);
+        ctx!.restore();
+      }
 
       const rankT = clamp01((ct - (solSpawn(3) + SCORED)) / 1400);
       drawLeaderboard(ct, rankT);
 
+      const winner = [...OPTIONS].filter((o) => o.valid).sort((a, b) => b.score - a.score)[0];
+
       // settle: winner paid via the contract
-      if (ct > SETTLE_START) {
+      if (ct > SETTLE_START && ct < RETURN_START + 200) {
         NODES[CRE].pulse = Math.max(NODES[CRE].pulse, 0.6);
-        const w = [...OPTIONS].filter((o) => o.valid).sort((a, b) => b.score - a.score)[0];
         const t = easeInOut(clamp01((ct - SETTLE_START - 400) / 1400));
-        if (t > 0) { const a = anchor(NODES[CRE]); const b = anchor(NODES[PAYOUT]); ctx!.save(); ctx!.translate(lerp(a.x, b.x, t), lerp(a.y, b.y, t) - Math.sin(t * Math.PI) * 14); ctx!.shadowColor = "rgba(47,170,85,0.7)"; ctx!.shadowBlur = 12; ctx!.fillStyle = w.color; ctx!.beginPath(); ctx!.arc(0, 0, 7, 0, Math.PI * 2); ctx!.fill(); ctx!.fillStyle = "#fff"; ctx!.font = "700 9px monospace"; ctx!.textAlign = "center"; ctx!.textBaseline = "middle"; ctx!.fillText("$", 0, 0.5); ctx!.restore(); if (t > 0.85) NODES[PAYOUT].pulse = 1; }
+        if (t > 0) { const a = anchor(NODES[CRE]); const b = anchor(NODES[PAYOUT]); ctx!.save(); ctx!.translate(lerp(a.x, b.x, t), lerp(a.y, b.y, t) - Math.sin(t * Math.PI) * 14); ctx!.shadowColor = "rgba(47,170,85,0.7)"; ctx!.shadowBlur = 12; ctx!.fillStyle = winner.color; ctx!.beginPath(); ctx!.arc(0, 0, 7, 0, Math.PI * 2); ctx!.fill(); ctx!.fillStyle = "#fff"; ctx!.font = "700 9px monospace"; ctx!.textAlign = "center"; ctx!.textBaseline = "middle"; ctx!.fillText("$", 0, 0.5); ctx!.restore(); if (t > 0.85) NODES[PAYOUT].pulse = 1; }
+      }
+
+      // the winning STRATEGY returns to the user, then deploys to the Uniswap bot
+      if (ct > RETURN_START) {
+        const uC = proj(NODES[USER].x, 0.42, NODES[USER].z);
+        if (ct < DEPLOY_START) {
+          const t = easeInOut(clamp01((ct - RETURN_START) / (DEPLOY_START - RETURN_START)));
+          const a = anchor(NODES[CRE]);
+          drawSolutionToken(lerp(a.x, uC.x, t), lerp(a.y, uC.y, t) - Math.sin(t * Math.PI) * 22, winner, 1);
+          if (t > 0.85) NODES[USER].pulse = 1;
+        } else {
+          const t = easeInOut(clamp01((ct - DEPLOY_START) / 1600));
+          const b = anchor(NODES[BOT]);
+          drawSolutionToken(lerp(uC.x, b.x, t), lerp(uC.y, b.y, t) - Math.sin(t * Math.PI) * 12, winner, 1);
+          if (t > 0.8) NODES[BOT].pulse = 1;
+        }
       }
 
       raf = requestAnimationFrame(frame);

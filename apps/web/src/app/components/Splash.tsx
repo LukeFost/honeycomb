@@ -6,8 +6,8 @@ import BeeScene from "./BeeScene";
 type Seg = { t: string; s?: "i" | "b" };
 
 const CAPTIONS: Record<number, Seg[]> = {
-  1: [{ t: "The honeycomb is the most geometrically efficient structure in nature — and engineering." }],
-  2: [{ t: "Built with hundreds of creatures working together." }],
+  1: [{ t: "The honeycomb is the most geometrically efficient structure in nature and engineering." }],
+  2: [{ t: "Built with swarms of intelligence working together." }],
   3: [
     { t: "Now available for " },
     { t: "anyone", s: "i" },
@@ -17,7 +17,7 @@ const CAPTIONS: Record<number, Seg[]> = {
 };
 
 const segLen = (segs: Seg[]) => segs.reduce((n, s) => n + s.t.length, 0);
-
+  
 // render segments revealed up to `count` characters, preserving styles
 function renderTyped(segs: Seg[], count: number) {
   let remaining = count;
