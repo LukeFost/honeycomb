@@ -12,7 +12,8 @@ submission against the private data and produces a **score** (real backtested Pn
 Only **valid** grades can win. The core thesis: an honest lower score beats a
 cheating higher one.
 
-Honeycomb exposes that whole lifecycle as 6 tools. This skill is how to use them.
+Honeycomb exposes that whole lifecycle as 6 tools (the plugin also registers a 7th,
+`get_skill`, which just returns this guide). This skill is how to use the 6.
 
 ## Prereq: how you reach the tools
 

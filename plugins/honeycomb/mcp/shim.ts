@@ -133,13 +133,19 @@ server.registerTool(
 				.string()
 				.optional()
 				.describe(
-					"Execution enclave's score-signer address, sent on-chain by the 6-arg createBounty (the escrow ecrecovers each grade against it). Default: the live KMS score-signer.",
+					"Execution enclave's score-signer address, sent on-chain by the 7-arg createBounty (the escrow ecrecovers each grade against it). Default: the live KMS score-signer.",
 				),
 			makerPubKey: z
 				.string()
 				.optional()
 				.describe(
 					"Maker's X25519 delivery pubkey as bytes32; the grader seals the winning submission to it. Sent on-chain (createBounty reverts on zero). Default: MAKER_PUBKEY from env/chain.ts.",
+				),
+			enclaveEncPub: z
+				.string()
+				.optional()
+				.describe(
+					"Per-bounty execution enclave's X25519 submission-sealing pubkey as bytes32 (the 7th createBounty arg, distinct from makerPubKey). Sent on-chain (the ERC-8183 contract reverts on zero). Default: ENCLAVE_ENCPUB from env/chain.ts.",
 				),
 		},
 	},

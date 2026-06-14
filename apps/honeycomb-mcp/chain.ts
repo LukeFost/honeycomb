@@ -31,7 +31,7 @@ export const USDC = (process.env.USDC ??
 // Execution enclave's score-signer. createBounty registers this as the job's
 // attesterKey; the escrow ecrecovers each recorded grade against it (BountyEscrow
 // .sol:248), so it MUST be the live KMS score-signer. The escrow
-// reverts on attesterKey == 0. Sent on-chain by the 6-arg createBounty; override
+// reverts on attesterKey == 0. Sent on-chain by the 7-arg createBounty; override
 // per-bounty with ATTESTER_KEY.
 export const ATTESTER_KEY = (process.env.ATTESTER_KEY ??
 	"0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F") as Address;
