@@ -62,10 +62,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --- cre CLI (linux_amd64, by pinned version) ----------------------------
 # /submit shells to `cre`. Pull the release tarball, extract the versioned binary,
 # install to /usr/local/bin. bookworm glibc 2.36 -> plain linux_amd64 (not ldd2-35).
+# The tarball extracts to a SINGLE file named cre_<TAG>_linux_amd64 where <TAG> keeps
+# the leading "v" (e.g. cre_v1.20.0_linux_amd64) -- it's the binary itself, not a dir.
+# So use ${CRE_VERSION} (=v1.20.0) verbatim, NOT ${CRE_VERSION#v} (which dropped the v
+# and made `mv` fail: "cannot stat '/tmp/cre_1.20.0_linux_amd64'").
 RUN curl -fsSL -o /tmp/cre.tar.gz \
       "https://github.com/smartcontractkit/cre-cli/releases/download/${CRE_VERSION}/cre_linux_amd64.tar.gz" \
     && tar -xzf /tmp/cre.tar.gz -C /tmp \
-    && mv "/tmp/cre_${CRE_VERSION#v}_linux_amd64" /usr/local/bin/cre \
+    && mv "/tmp/cre_${CRE_VERSION}_linux_amd64" /usr/local/bin/cre \
     && chmod +x /usr/local/bin/cre \
     && rm /tmp/cre.tar.gz \
     && cre version
@@ -80,15 +84,20 @@ RUN python3 -m venv "$GRADER_VENV" \
     && "$GRADER_VENV/bin/pip" install --no-cache-dir \
          zelos-demeter==1.3.0 \
          google-cloud-kms==2.* \
+         google-cloud-bigquery==3.* \
          eth-keys==0.5.* \
          "eth-hash[pycryptodome]" \
-    && "$GRADER_VENV/bin/python" -c "import demeter, pandas, numpy; print('venv OK')"
+    && "$GRADER_VENV/bin/python" -c "import demeter, pandas, numpy; from google.cloud import bigquery; print('venv OK')"
 
 # --- workspace node_modules (from stage 1) -------------------------------
 COPY --from=workspace /repo/node_modules ./node_modules
 COPY --from=workspace /repo/apps/honeycomb-api/node_modules ./apps/honeycomb-api/node_modules
 COPY --from=workspace /repo/apps/honeycomb-mcp/node_modules ./apps/honeycomb-mcp/node_modules
-COPY --from=workspace /repo/packages/chain/node_modules ./packages/chain/node_modules
+# NOTE: no packages/chain/node_modules COPY -- @honeycomb/chain has ZERO deps (sepolia.ts
+# imports only node:child_process), so pnpm creates no node_modules for it. The workspace
+# symlink that resolves "@honeycomb/chain" lives in the CONSUMERS' node_modules/@honeycomb/
+# (api + mcp, copied above) and the root store, both already present. Copying a path pnpm
+# never creates fails the build with "not found".
 
 # --- source: the api + the engine + the chain pkg + the skill ------------
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -109,9 +118,14 @@ RUN cd apps/grading-cre/grading-workflow && bun install --frozen-lockfile
 # --- runtime config ------------------------------------------------------
 # Cloud Run sends traffic to $PORT (8080). Bind 0.0.0.0 so it's reachable; the
 # write routes are guarded by HONEYCOMB_API_TOKEN (set at deploy).
+# HONEYCOMB_PYTHON points reputation.ts at the grader venv python (which now carries
+# google-cloud-bigquery). Without it, reputation.ts falls back to bare python3 -- the
+# system interpreter that has no `google` package -> /reputation 500s. There is no
+# analysis/.venv in this image (analysis/ is not copied), so this override is required.
 ENV PORT=8080 \
     HOST=0.0.0.0 \
     HONEYCOMB_GRADER_VENV=/repo/apps/grading-cre/grader/.venv/bin \
+    HONEYCOMB_PYTHON=/repo/apps/grading-cre/grader/.venv/bin/python \
     PYTHONDONTWRITEBYTECODE=1
 EXPOSE 8080
 

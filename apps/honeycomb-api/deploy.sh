@@ -91,7 +91,7 @@ gcloud run deploy "$SERVICE" \
   --timeout=300 \
   --vpc-connector="$VPC_CONNECTOR" \
   --vpc-egress=private-ranges-only \
-  --set-env-vars="HOST=0.0.0.0,GRADER_ENCLAVE_URL=${GRADER_ENCLAVE_URL},HONEYCOMB_CRE_TARGET=${HONEYCOMB_CRE_TARGET},HONEYCOMB_GRADER_VENV=/repo/apps/grading-cre/grader/.venv/bin" \
+  --set-env-vars="HOST=0.0.0.0,GRADER_ENCLAVE_URL=${GRADER_ENCLAVE_URL},HONEYCOMB_CRE_TARGET=${HONEYCOMB_CRE_TARGET},HONEYCOMB_GRADER_VENV=/repo/apps/grading-cre/grader/.venv/bin,HONEYCOMB_PYTHON=/repo/apps/grading-cre/grader/.venv/bin/python" \
   --set-secrets="SEP_PRIVATE_KEY=honeycomb-sep-private-key:latest,INFERENCE_API_KEY_VAR=honeycomb-inference-api-key:latest,SEPOLIA_RPC=honeycomb-sepolia-rpc:latest,CRE_API_KEY=honeycomb-cre-api-key:latest,HONEYCOMB_API_TOKEN=honeycomb-api-token:latest"
 
 echo "[deploy] done. URL:"
