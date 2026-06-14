@@ -3,5 +3,5 @@
   "consumerAddress": "0x90058162D3d55542f39507d0328538824A24C9C3",
   "chainSelectorName": "ethereum-mainnet",
   "schedule": "*/30 * * * * *",
-  "jobId": 1
+  "jobId": 6
 }

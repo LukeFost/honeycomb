@@ -160,9 +160,14 @@ async function main() {
   const dryRun =
     process.argv.includes("--dry-run") || process.env.SUMMON_DRY_RUN === "1";
   const [submission, jobId, agentId, imageDigest] = args;
-  if (!submission || !jobId || !agentId) {
+  // SETTLE-ONLY: the maker pays once up front to SUMMON the bounty's grader (the
+  // canonical "maker-summoned per-bounty TEE" model). It settles + returns, leaving
+  // the per-submission VM grading to grade_in_vm.sh (authorized by this one payment).
+  const settleOnly = process.env.SUMMON_SETTLE_ONLY === "1";
+  if (!jobId || (!settleOnly && (!submission || !agentId))) {
     die(
-      "usage: summon_enclave.ts <submission> <jobId> <agentId> [image-digest] [--dry-run]",
+      "usage: summon_enclave.ts <submission> <jobId> <agentId> [image-digest] [--dry-run]" +
+        "  (SUMMON_SETTLE_ONLY=1 needs only <jobId>)",
     );
   }
 
@@ -343,8 +348,15 @@ async function main() {
   }
   const payer = settle.json?.payer ?? authorization.from;
   console.error(
-    `[summon] x402 SETTLED on ${network}: tx=${tx} payer=${payer} amount=${amount} -> VM spawn AUTHORIZED.`,
+    `[summon] x402 SETTLED on ${network}: tx=${tx} payer=${payer} amount=${amount} -> grader summoned.`,
   );
+
+  if (settleOnly) {
+    // Maker has paid to summon the bounty's grader; grading runs separately (grade_in_vm.sh).
+    console.error("[summon] SETTLE-ONLY: bounty grader summoned; grading authorized for jobId " + jobId + ".");
+    console.log(JSON.stringify({ settled: true, network, tx, payer, amount, jobId }));
+    return;
+  }
 
   // --- (5) SETTLEMENT AUTHORIZES THE SPAWN: run grade_in_vm.sh. ---
   // This is the LAST step and the ONLY path to a VM. The grade JSON line goes to
