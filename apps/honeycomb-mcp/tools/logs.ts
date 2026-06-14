@@ -94,8 +94,9 @@ const SEVERITIES = ["DEFAULT", "DEBUG", "INFO", "NOTICE", "WARNING", "ERROR", "C
 // a 40-hex address). Replacement keeps enough context to read the line.
 const REDACTIONS: Array<[RegExp, string]> = [
 	// RPC / API URLs with the key in the PATH: .../v2/<key>, .../v3/<key>, infura, etc.
-	// Keep host + version segment, drop the trailing key.
-	[/(\bhttps?:\/\/[^\s/]+\/v\d+\/)[A-Za-z0-9_-]{12,}/gi, "$1<redacted>"],
+	// Keep host + version segment, drop the trailing key. Covers http(s) AND ws(s)
+	// — the subscriber's RPC endpoint is a wss:// URL with the key in the path.
+	[/(\b(?:https?|wss?):\/\/[^\s/]+\/v\d+\/)[A-Za-z0-9_-]{12,}/gi, "$1<redacted>"],
 	// Keys passed as query params: ?key=, &apikey=, &access_token=, &token=
 	[/([?&](?:api[_-]?key|key|access_token|token|secret)=)[^&\s"']+/gi, "$1<redacted>"],
 	// Authorization headers / bearer tokens in any logged request dump.
@@ -106,7 +107,9 @@ const REDACTIONS: Array<[RegExp, string]> = [
 	[/\b0x[0-9a-fA-F]{64}\b/g, "0x<redacted-32-bytes>"],
 	[/\b[0-9a-fA-F]{64}\b/g, "<redacted-32-bytes>"],
 	// Anything that names itself a secret/key in a KEY=VALUE / "key": "value" pair.
-	[/(\b(?:[A-Z_]*(?:PRIVATE_KEY|SECRET|API_KEY|TOKEN|PASSWORD)[A-Z_]*)\s*[:=]\s*"?)[^\s",}]+/g, "$1<redacted>"],
+	// Case-insensitive so both an env dump (INFERENCE_API_KEY=...) and a JSON field
+	// ("password":"...") are caught; quoted-key form is handled by the optional "?.
+	[/("?\b\w*(?:private[_-]?key|secret|api[_-]?key|token|password)\w*"?\s*[:=]\s*"?)[^\s",}]+/gi, "$1<redacted>"],
 ];
 
 /** Scrub secrets out of a log line before it leaves this module. */
