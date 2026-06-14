@@ -51,3 +51,7 @@ apps/x402-facilitator/run-with-secrets.sh
 
 # codex exec subagent scratch (fleet audit output)
 .codex-lanes/
+
+# local scratch / probe junk — throwaway debugging, never shared
+apps/honeycomb-mcp/.tmp/
+plugins/honeycomb/mcp/scratch-*.ts
