@@ -1,0 +1,24 @@
+{
+  "name": "honeycomb",
+  "owner": {
+    "name": "Honeycomb"
+  },
+  "description": "Marketplace for the Honeycomb plugin: drive the Honeycomb bounty lifecycle from Claude Code.",
+  "plugins": [
+    {
+      "name": "honeycomb",
+      "source": "./plugins/honeycomb",
+      "description": "Drives the Honeycomb bounty lifecycle (create/fund bounties on Sepolia, monitor grading + settlement, read ERC-8004 reputation, grade via the TEE grader) from Claude Code as a thin client.",
+      "keywords": [
+        "honeycomb",
+        "bounty",
+        "erc-8004",
+        "erc-8183",
+        "sepolia",
+        "tee",
+        "grader",
+        "reputation"
+      ]
+    }
+  ]
+}
