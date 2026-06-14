@@ -3,6 +3,15 @@
 import { useState, type ReactNode } from "react";
 import type { SettledBounty } from "@/lib/reputation";
 import { AddrLink, TxLink, Chip, truncAddr } from "./ui";
+import { InfoTip } from "./InfoTip";
+
+// Plain-language help for the on-chain attestation digest, surfaced via an "i" tooltip on the
+// field label (mirrors the column tooltips in EarnedReputationTable). Explains the hash in
+// Honeycomb's terms — proof the winner came out of an attested TEE grading run.
+const ATTESTATION_HELP =
+  "The TEE grader's validity-attestation digest, stamped into the on-chain settlement. A " +
+  "cryptographic fingerprint of the confidential grading run that selected this winner — so the " +
+  "payout is provably tied to an attested grade, not a hand-picked one.";
 
 // A collapsible "Closed bounties" panel: collapsed by default, expands to a list of settled
 // bounties; each row expands again to its full on-chain provenance (winner, enclave score,
@@ -69,12 +78,8 @@ function SettledRow({ b }: { b: SettledBounty }) {
           <Field label="Deadline"><span className="tnum">{b.deadline}</span></Field>
           <Field label="Creation tx">{b.txHash ? <TxLink hash={b.txHash} /> : <Dash />}</Field>
           <Field label="Settlement tx">{b.settlementTxHash ? <TxLink hash={b.settlementTxHash} /> : <Dash />}</Field>
-          <Field label="Attestation">
-            {b.attestationHash ? (
-              <span className="font-mono text-ink-3" title={b.attestationHash}>{truncAddr(b.attestationHash)}</span>
-            ) : (
-              <Dash />
-            )}
+          <Field label="Attestation" tip={ATTESTATION_HELP}>
+            {b.attestationHash ? <CopyHash value={b.attestationHash} /> : <Dash />}
           </Field>
         </dl>
       )}
@@ -82,12 +87,59 @@ function SettledRow({ b }: { b: SettledBounty }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, tip, children }: { label: string; tip?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="text-[10px] uppercase tracking-wide text-ink-3">{label}</dt>
+      <dt className="inline-flex items-center text-[10px] uppercase tracking-wide text-ink-3">
+        {label}
+        {tip ? <InfoTip text={tip} /> : null}
+      </dt>
       <dd className="text-ink-2">{children}</dd>
     </div>
+  );
+}
+
+// The attestation digest isn't an Etherscan-addressable entity (it's a bytes32 commitment, and the
+// tx that carries it is already linked as "Settlement tx"), so instead of a link it's click-to-copy:
+// the digest is meant to be COMPARED against the grader's attestation, which copy serves better.
+function CopyHash({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    const done = navigator.clipboard?.writeText(value);
+    if (!done) return;
+    done.then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      },
+      () => {},
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={value}
+      aria-label={`Copy attestation hash ${value}`}
+      className="group inline-flex items-center gap-1 font-mono text-ink-3 transition-colors hover:text-gold"
+    >
+      {truncAddr(value)}
+      {copied ? (
+        <span className="text-[0.85em] text-gold">copied</span>
+      ) : (
+        <svg
+          aria-hidden
+          width="10"
+          height="10"
+          viewBox="0 0 24 24"
+          fill="none"
+          className="opacity-70 transition-opacity group-hover:opacity-100"
+        >
+          <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
+          <path d="M5 15V5a2 2 0 0 1 2-2h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      )}
+    </button>
   );
 }
 
