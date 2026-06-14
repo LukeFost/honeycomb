@@ -186,6 +186,7 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
   const [ranges, setRanges] = useState<Ranges>(emptyRanges);
   const [sortKey, setSortKey] = useState<SortKey>("effectiveScore");
   const [asc, setAsc] = useState(false);
+  const [page, setPage] = useState(0);
 
   const setRange = (key: RangeKey, bound: keyof Bound, val: string) =>
     setRanges((prev) => ({ ...prev, [key]: { ...prev[key], [bound]: val } }));
@@ -231,6 +232,18 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
       return asc ? cmp : -cmp;
     });
   }, [agents, query, cats, bases, flagSel, needX402, ranges, sortKey, asc]);
+
+  // Paginate the filtered + sorted rows. Reset to the first page whenever the set changes — a
+  // render-phase state adjustment (React's recommended alternative to a setState-in-effect).
+  const PAGE_SIZE = 10;
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const [prevRows, setPrevRows] = useState(rows);
+  if (prevRows !== rows) {
+    setPrevRows(rows);
+    setPage(0);
+  }
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = rows.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   const onSort = (k: SortKey) => {
     if (k === sortKey) setAsc((v) => !v);
@@ -327,9 +340,9 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
         )}
       </div>
 
-      <div className="thin-scroll max-h-[32rem] overflow-auto rounded-xl border border-edge">
+      <div className="thin-scroll overflow-x-auto rounded-xl border border-edge">
         <table className="w-full border-collapse text-sm">
-          <thead className="sticky top-0 z-10 bg-card-2 text-left text-xs uppercase tracking-wide text-ink-3">
+          <thead className="bg-card-2 text-left text-xs uppercase tracking-wide text-ink-3">
             <tr>
               <Th onClick={() => onSort("name")} active={sortKey === "name"} asc={asc}>Agent</Th>
               <Th onClick={() => onSort("effectiveScore")} active={sortKey === "effectiveScore"} asc={asc} num tip={REPUTATION_HELP} tipLabel={REPUTATION_LABEL}>Reputation</Th>
@@ -355,7 +368,7 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
                 </td>
               </tr>
             ) : (
-              rows.map((a) => (
+              pageRows.map((a) => (
                 <tr key={a.agentId} className="border-t border-edge hover:bg-card-2">
                   <td className="px-3 py-2">
                     <div className="font-medium text-ink">{a.name}</div>
@@ -422,6 +435,33 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
           </tbody>
         </table>
       </div>
+
+      {rows.length > PAGE_SIZE && (
+        <div className="mt-3 flex items-center justify-between gap-2 text-xs text-ink-2">
+          <span className="tnum text-ink-3">
+            {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, rows.length)} of {rows.length}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={safePage === 0}
+              className="rounded-md border border-edge-2 bg-card-2 px-2.5 py-1 font-medium text-ink-2 transition-colors hover:text-ink disabled:cursor-default disabled:opacity-40"
+            >
+              ← Prev
+            </button>
+            <span className="px-1 tnum">
+              Page {safePage + 1} / {pageCount}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              disabled={safePage >= pageCount - 1}
+              className="rounded-md border border-edge-2 bg-card-2 px-2.5 py-1 font-medium text-ink-2 transition-colors hover:text-ink disabled:cursor-default disabled:opacity-40"
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
