@@ -54,18 +54,19 @@ const ISO_SIN = Math.sin(Math.PI / 6);
 const R = 0.8;
 const H = 0.85;
 
-// timeline (ms)
-const CYCLE = 17500;
-const FUND_END = 2600;
-const DISCOVER_END = 4600;
-const SWARM_END = 6600;
-const SOL_START = 6600;
-const SOL_STAGGER = 480;
-const SEG1 = 1500; // bounty → AI tester
-const VERDICT = 800; // verdict shown at AI tester
-const SEG2 = 1500; // AI tester → scorer
-const SCORE_HOLD = 900;
-const SETTLE_START = 14200;
+// timeline (ms) — paced slowly so each step is easy to follow
+const CYCLE = 26500;
+const FUND_END = 3400;
+const DISCOVER_END = 6000;
+const SWARM_END = 8400;
+const SOL_START = 8400;
+const SOL_STAGGER = 1700; // well-spaced so one circle clears before the next
+const SEG1 = 2200; // bounty → AI tester
+const VERDICT = 1400; // verdict shown at AI tester
+const SEG2 = 2200; // AI tester → scorer
+const SCORE_HOLD = 1600; // running inside the scorer
+const REJECT = 1700; // invalid slides off to the side
+const SETTLE_START = 22600;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
@@ -285,17 +286,18 @@ export default function HowItWorks() {
       ctx!.fillStyle = BODY; ctx!.fill(); ctx!.lineWidth = r * 0.16; ctx!.strokeStyle = DARK; ctx!.stroke(); ctx!.restore();
     }
     // a solution travelling as a little price-chart card
-    function drawSolutionCard(x: number, y: number, o: typeof OPTIONS[number], oi: number, invalidStamp = false) {
-      const w = 50, h = 34;
-      ctx!.save(); ctx!.translate(x, y);
-      ctx!.shadowColor = "rgba(40,26,4,0.25)"; ctx!.shadowBlur = 8; ctx!.shadowOffsetY = 2;
-      ctx!.beginPath(); ctx!.roundRect(-w / 2, -h / 2, w, h, 6); ctx!.fillStyle = "#fffdf8"; ctx!.fill(); ctx!.restore();
-      ctx!.beginPath(); ctx!.roundRect(x - w / 2, y - h / 2, w, h, 6); ctx!.lineWidth = 1.5; ctx!.strokeStyle = o.color; ctx!.stroke();
-      drawChartInBox(x - w / 2 + 4, y - h / 2 + 4, w - 8, h - 8, chartPts(oi, !o.valid), o.color, 1);
-      ctx!.fillStyle = o.color; ctx!.font = "700 8px var(--font-geist-mono), monospace"; ctx!.textAlign = "left"; ctx!.textBaseline = "top"; ctx!.fillText(o.id, x - w / 2 + 4, y - h / 2 + 3);
-      if (invalidStamp) {
-        ctx!.strokeStyle = "#d23f3f"; ctx!.lineWidth = 2.4; ctx!.beginPath(); ctx!.moveTo(x - 8, y - 8); ctx!.lineTo(x + 8, y + 8); ctx!.moveTo(x + 8, y - 8); ctx!.lineTo(x - 8, y + 8); ctx!.stroke();
-      }
+    // a solution travelling as a circle with its letter (the graph only shows
+    // once it's inside the Scorer computer)
+    function drawSolutionToken(x: number, y: number, o: typeof OPTIONS[number], alpha = 1) {
+      ctx!.save(); ctx!.globalAlpha = alpha; ctx!.translate(x, y);
+      const r = 13;
+      ctx!.shadowColor = o.color; ctx!.shadowBlur = 10;
+      ctx!.beginPath(); ctx!.arc(0, 0, r, 0, Math.PI * 2); ctx!.fillStyle = o.color; ctx!.fill();
+      ctx!.shadowBlur = 0;
+      ctx!.lineWidth = 2; ctx!.strokeStyle = "rgba(255,255,255,0.9)"; ctx!.stroke();
+      ctx!.fillStyle = "#fff"; ctx!.font = "700 13px var(--font-geist-mono), monospace"; ctx!.textAlign = "center"; ctx!.textBaseline = "middle";
+      ctx!.fillText(o.id, 0, 0.5);
+      ctx!.restore();
     }
 
     function drawLeaderboard(ct: number, rankT: number) {
@@ -328,10 +330,10 @@ export default function HowItWorks() {
     // ---- loop ----------------------------------------------------------------
     let raf = 0;
     function frame(now: number) {
-      const ct = reduce ? 13000 : now % CYCLE;
+      const ct = reduce ? 19000 : now % CYCLE;
       if (ct < lastCt) for (const r of rows) r.y = null;
       lastCt = ct;
-      const st = ct < FUND_END ? 0 : ct < DISCOVER_END ? 1 : ct < SWARM_END ? 2 : ct < 8400 ? 3 : ct < 10800 ? 4 : ct < SETTLE_START ? 5 : 6;
+      const st = ct < FUND_END ? 0 : ct < DISCOVER_END ? 1 : ct < SWARM_END ? 2 : ct < SOL_START + SEG1 ? 3 : ct < solSpawn(3) + SEG1 + VERDICT ? 4 : ct < SETTLE_START ? 5 : 6;
       if (st !== lastStep) { lastStep = st; setStep(st); }
 
       for (const n of NODES) n.pulse *= 0.93;
@@ -373,17 +375,24 @@ export default function HowItWorks() {
       }
 
       // solutions travelling + verdicts
-      type Tok = { x: number; y: number; o: typeof OPTIONS[number]; oi: number; invalidStamp: boolean };
+      type Tok = { x: number; y: number; o: typeof OPTIONS[number]; alpha: number };
       const toks: Tok[] = [];
-      let aiVerdict: { valid: boolean; color: string; oi: number } | null = null;
+      let aiVerdict: { valid: boolean; oi: number } | null = null;
       let scoreRun: { o: typeof OPTIONS[number]; oi: number; prog: number } | null = null;
       OPTIONS.forEach((o, i) => {
         const sp = solSpawn(i); const el = ct - sp; if (el < 0) return;
         const aiP = anchor(NODES[AITESTER]); const bP = ground(NODES[BOUNTY]); const scP = anchor(NODES[SCORER]);
-        if (el < SEG1) { const lt = easeInOut(el / SEG1); toks.push({ x: lerp(bP.x, aiP.x, lt), y: lerp(bP.y, aiP.y, lt) - Math.sin(lt * Math.PI) * 12, o, oi: i, invalidStamp: false }); }
-        else if (el < SEG1 + VERDICT) { aiVerdict = { valid: o.valid, color: o.color, oi: i }; NODES[AITESTER].pulse = 1; toks.push({ x: aiP.x, y: aiP.y - 26, o, oi: i, invalidStamp: !o.valid }); }
-        else if (!o.valid) { /* dropped */ }
-        else if (el < SEG1 + VERDICT + SEG2) { const lt = easeInOut((el - SEG1 - VERDICT) / SEG2); toks.push({ x: lerp(aiP.x, scP.x, lt), y: lerp(aiP.y, scP.y, lt) - Math.sin(lt * Math.PI) * 12, o, oi: i, invalidStamp: false }); }
+        if (el < SEG1) { const lt = easeInOut(el / SEG1); toks.push({ x: lerp(bP.x, aiP.x, lt), y: lerp(bP.y, aiP.y, lt) - Math.sin(lt * Math.PI) * 12, o, alpha: 1 }); }
+        else if (el < SEG1 + VERDICT) { aiVerdict = { valid: o.valid, oi: i }; NODES[AITESTER].pulse = 1; toks.push({ x: aiP.x, y: aiP.y - 30, o, alpha: 1 }); }
+        else if (!o.valid) {
+          // invalid → slides off to the side and fades out
+          const rel = el - SEG1 - VERDICT;
+          if (rel < REJECT) {
+            const lt = easeInOut(clamp01(rel / REJECT));
+            toks.push({ x: lerp(aiP.x, aiP.x - scale * 1.7, lt), y: lerp(aiP.y - 30, aiP.y + scale * 1.6, lt), o, alpha: 1 - clamp01((rel - REJECT * 0.45) / (REJECT * 0.55)) });
+          }
+        }
+        else if (el < SEG1 + VERDICT + SEG2) { const lt = easeInOut((el - SEG1 - VERDICT) / SEG2); toks.push({ x: lerp(aiP.x, scP.x, lt), y: lerp(aiP.y, scP.y, lt) - Math.sin(lt * Math.PI) * 12, o, alpha: 1 }); }
         else if (el < SEG1 + VERDICT + SEG2 + SCORE_HOLD) { scoreRun = { o, oi: i, prog: clamp01((el - SEG1 - VERDICT - SEG2) / SCORE_HOLD) }; NODES[SCORER].pulse = 1; }
       });
 
@@ -399,12 +408,14 @@ export default function HowItWorks() {
         else if (n.kind === "escrow") drawEscrow(n, funded);
         else if (n.kind === "monitor") {
           if (n.mon === "ai") drawMonitor(n, (x, y, w, h) => {
-            const v = aiVerdict as { valid: boolean; color: string; oi: number } | null;
+            const v = aiVerdict as { valid: boolean; oi: number } | null;
             ctx!.textAlign = "center"; ctx!.textBaseline = "middle";
             if (v) {
-              ctx!.fillStyle = v.valid ? "#2faa55" : "#ff5a5a"; ctx!.font = `800 ${Math.round(h * 0.32)}px var(--font-geist-mono), monospace`;
-              ctx!.fillText(v.valid ? "VALID" : "INVALID", x + w / 2, y + h * 0.42);
-              ctx!.font = `700 ${Math.round(h * 0.5)}px var(--font-geist-mono), monospace`; ctx!.fillText(v.valid ? "✓" : "✗", x + w / 2, y + h * 0.74);
+              const inv = !v.valid;
+              // the candidate's graph, on the screen (the cheat shoots straight up)
+              drawChartInBox(x + 4, y + 3, w - 8, h * 0.52, chartPts(v.oi, inv), inv ? "#ff7a7a" : "#7fe0a0", 1);
+              ctx!.fillStyle = inv ? "#ff5a5a" : "#2faa55"; ctx!.font = `800 ${Math.round(h * 0.26)}px var(--font-geist-mono), monospace`;
+              ctx!.fillText(v.valid ? "VALID ✓" : "INVALID ✗", x + w / 2, y + h * 0.8);
             } else { ctx!.fillStyle = "rgba(120,200,140,0.8)"; ctx!.font = `600 ${Math.round(h * 0.2)}px var(--font-geist-mono), monospace`; ctx!.fillText("validate()", x + w / 2, y + h / 2); }
           });
           else drawMonitor(n, (x, y, w, h) => {
@@ -425,7 +436,7 @@ export default function HowItWorks() {
 
       // bees
       if (!reduce && ct > DISCOVER_END - 200) {
-        const beeAlpha = clamp01((ct - (DISCOVER_END - 200)) / 300) * (1 - clamp01((ct - (SOL_START + 1400)) / 700));
+        const beeAlpha = clamp01((ct - (DISCOVER_END - 200)) / 300) * (1 - clamp01((ct - (solSpawn(3) + 500)) / 1000));
         if (beeAlpha > 0.01) {
           const hiveP = anchor(NODES[HIVE]); const workP = ground(NODES[BOUNTY]);
           for (const bee of bees) {
@@ -437,9 +448,9 @@ export default function HowItWorks() {
         }
       }
 
-      for (const t of toks) drawSolutionCard(t.x, t.y, t.o, t.oi, t.invalidStamp);
+      for (const t of toks) drawSolutionToken(t.x, t.y, t.o, t.alpha);
 
-      const rankT = clamp01((ct - 12600) / 1500);
+      const rankT = clamp01((ct - (solSpawn(3) + SEG1 + VERDICT + SEG2 + SCORE_HOLD)) / 1400);
       drawLeaderboard(ct, rankT);
 
       // settle: CRE pulse, winner paid via escrow

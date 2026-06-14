@@ -47,9 +47,21 @@ contract BountyEscrow is IReceiver {
         Expired
     }
 
-    // onReport action discriminator.
-    uint8 internal constant ACTION_RECORD_GRADE = 0;
-    uint8 internal constant ACTION_RESOLVE = 1;
+    // onReport action discriminator. Architecture A: the two TEEs write independently.
+    uint8 internal constant ACTION_RECORD_SCORE = 0; // from the Grader enclave's CRE callback
+    uint8 internal constant ACTION_RECORD_VALIDITY = 1; // from the AI Attestor's CRE callback
+    uint8 internal constant ACTION_RESOLVE = 2; // from the CRON resolver
+
+    // Per-(jobId, agentId) submission state. The two gates arrive in EITHER order via
+    // separate TEE callbacks; a submission can only lead once BOTH are in and valid.
+    struct Submission {
+        uint16 score; // execution score 0..10000
+        bool hasScore; // grader enclave wrote a (sig-verified) score
+        bool valid; // AI attestor verdict
+        bool hasValidity; // AI attestor wrote a verdict
+        bytes32 scoreDigest; // keccak256(jobId,agentId,score) — the ecrecover'd digest
+        bytes32 validityAtt; // AI attestor response digest (record)
+    }
 
     struct Job {
         uint256 id;
@@ -78,6 +90,7 @@ contract BountyEscrow is IReceiver {
 
     uint256 public nextJobId = 1;
     mapping(uint256 => Job) public jobs;
+    mapping(uint256 => mapping(uint256 => Submission)) public submissionOf; // jobId => agentId => state
 
     /// @notice Grace after expiredAt during which only resolve (not claimRefund)
     ///         is allowed — grading runs after the deadline.
@@ -92,15 +105,9 @@ contract BountyEscrow is IReceiver {
         bytes32 testsHash,
         string specCid
     );
-    event GradeRecorded(
-        uint256 indexed jobId,
-        uint256 indexed agentId,
-        uint16 score,
-        bool valid,
-        bytes32 scoreAttestationHash,
-        bytes32 validityAttestationHash,
-        bool newLeader
-    );
+    event ScoreRecorded(uint256 indexed jobId, uint256 indexed agentId, uint16 score, bytes32 scoreDigest);
+    event ValidityRecorded(uint256 indexed jobId, uint256 indexed agentId, bool valid, bytes32 validityAtt);
+    event NewLeader(uint256 indexed jobId, uint256 indexed agentId, uint16 score);
     event JobResolved(
         uint256 indexed jobId,
         uint256 indexed winnerAgentId,
@@ -170,18 +177,14 @@ contract BountyEscrow is IReceiver {
         if (msg.sender != forwarder) revert UnauthorizedForwarder(msg.sender);
         (uint8 action, bytes memory data) = abi.decode(report, (uint8, bytes));
 
-        if (action == ACTION_RECORD_GRADE) {
-            (
-                uint256 jobId,
-                uint256 agentId,
-                uint16 score,
-                bool valid,
-                bytes32 validityAtt,
-                uint8 v,
-                bytes32 r,
-                bytes32 s
-            ) = abi.decode(data, (uint256, uint256, uint16, bool, bytes32, uint8, bytes32, bytes32));
-            _recordGrade(jobId, agentId, score, valid, validityAtt, v, r, s);
+        if (action == ACTION_RECORD_SCORE) {
+            (uint256 jobId, uint256 agentId, uint16 score, uint8 v, bytes32 r, bytes32 s) =
+                abi.decode(data, (uint256, uint256, uint16, uint8, bytes32, bytes32));
+            _recordScore(jobId, agentId, score, v, r, s);
+        } else if (action == ACTION_RECORD_VALIDITY) {
+            (uint256 jobId, uint256 agentId, bool valid, bytes32 validityAtt) =
+                abi.decode(data, (uint256, uint256, bool, bytes32));
+            _recordValidity(jobId, agentId, valid, validityAtt);
         } else if (action == ACTION_RESOLVE) {
             uint256 jobId = abi.decode(data, (uint256));
             _resolve(jobId);
@@ -190,41 +193,61 @@ contract BountyEscrow is IReceiver {
         }
     }
 
-    function _recordGrade(
-        uint256 jobId,
-        uint256 agentId,
-        uint16 score,
-        bool valid,
-        bytes32 validityAtt,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) internal {
-        Job storage j = jobs[jobId];
+    /// @dev Open for grading while Funded and within the grace window.
+    function _gradingOpen(Job storage j) internal view {
         require(j.client != address(0), "no job");
         require(j.status == JobStatus.Funded, "not open");
-        // Grading window = contest + SETTLE_GRACE (covers grading latency). Stops
-        // grades being inserted arbitrarily late to snipe a result post-contest.
         require(block.timestamp <= j.expiredAt + SETTLE_GRACE, "grading closed");
+    }
 
-        // FIX #2: the score must be SIGNED by this bounty's execution enclave. The
-        // signed digest binds (jobId, agentId, score) so the score can't be lied
-        // about, replayed onto another job/agent, or forged by a non-enclave caller.
+    // --- Gate 1: the Grader enclave's signed score (ecrecover-verified) ----------
+
+    function _recordScore(uint256 jobId, uint256 agentId, uint16 score, uint8 v, bytes32 r, bytes32 s)
+        internal
+    {
+        Job storage j = jobs[jobId];
+        _gradingOpen(j);
+        // The score must be SIGNED by this bounty's execution enclave. The signed digest
+        // binds (jobId, agentId, score) → can't be lied about, replayed, or forged.
         bytes32 scoreDigest = keccak256(abi.encode(jobId, agentId, uint256(score)));
         require(ecrecover(scoreDigest, v, r, s) == j.attesterKey, "bad enclave score sig");
 
-        j.gradeCount += 1;
+        Submission storage sub = submissionOf[jobId][agentId];
+        sub.score = score;
+        sub.hasScore = true;
+        sub.scoreDigest = scoreDigest;
+        emit ScoreRecorded(jobId, agentId, score, scoreDigest);
+        _maybePromote(jobId, agentId);
+    }
 
-        // effective = valid ? score : 0  → only valid grades can take the lead.
-        // (validity is the AI attestor's domain; the enclave signs only the score.)
-        bool newLeader = valid && agentId != 0 && (j.bestAgentId == 0 || score > j.bestScore);
-        if (newLeader) {
+    // --- Gate 2: the AI Attestor's validity verdict (delivered via its CRE callback) -
+
+    function _recordValidity(uint256 jobId, uint256 agentId, bool valid, bytes32 validityAtt) internal {
+        Job storage j = jobs[jobId];
+        _gradingOpen(j);
+        Submission storage sub = submissionOf[jobId][agentId];
+        sub.valid = valid;
+        sub.hasValidity = true;
+        sub.validityAtt = validityAtt;
+        emit ValidityRecorded(jobId, agentId, valid, validityAtt);
+        _maybePromote(jobId, agentId);
+    }
+
+    // --- Combine: a submission leads only with BOTH gates in and valid -----------
+
+    function _maybePromote(uint256 jobId, uint256 agentId) internal {
+        if (agentId == 0) return;
+        Submission storage sub = submissionOf[jobId][agentId];
+        // effective = valid ? score : 0 ; needs an enclave-signed score AND a valid verdict.
+        if (!(sub.hasScore && sub.hasValidity && sub.valid)) return;
+        Job storage j = jobs[jobId];
+        if (j.bestAgentId == 0 || sub.score > j.bestScore) {
             j.bestAgentId = agentId;
-            j.bestScore = score;
-            j.bestScoreAtt = scoreDigest;
-            j.bestValidityAtt = validityAtt;
+            j.bestScore = sub.score;
+            j.bestScoreAtt = sub.scoreDigest;
+            j.bestValidityAtt = sub.validityAtt;
+            emit NewLeader(jobId, agentId, sub.score);
         }
-        emit GradeRecorded(jobId, agentId, score, valid, scoreDigest, validityAtt, newLeader);
     }
 
     function _resolve(uint256 jobId) internal {

@@ -31,12 +31,15 @@ forge test  →  7 passed; 0 failed
 ## Layout
 
 ```
-contracts/StrategyVault.sol          the CRE receiver (ERC-165) + scoped policy (authority layer)
-test/StrategyVaultForkSwap.t.sol     mainnet-fork proof (forwarder simulated via vm.prank)
-test/DecodeWorkflowPayload.t.sol     proves the workflow's viem payload decodes in the vault
-script/RealSwap.s.sol                gated real-money smoke test (does NOT run by default)
-strategy-workflow/main.ts            the CRE workflow: CRON -> Action -> report -> writeReport
-strategy-workflow/{workflow,config,…}  CRE targets + config (project.yaml is at the app root)
+contracts/StrategyVault.sol          per-user vault: CRE receiver (ERC-165) + scoped policy
+contracts/StrategyRegistry.sol       multi-user directory: users register their own vault + strategy
+strategy-workflow/main.ts            CRE workflow: read registry -> fan out (quote->report) per vault
+strategy-workflow/{config,workflow,secrets}  CRE config / targets / secret (project.yaml at app root)
+script/DeployBase.s.sol              deploy a vault to Base (real broadcast)
+script/DeployRegistry.s.sol          deploy registry + register vaults (real broadcast)
+script/RealSwap.s.sol                gated real-money EOA smoke test (does NOT run by default)
+run-loop.sh                          centralized loop runner (automatic until DON deploy)
+test/*.t.sol                         vault fork swaps (mainnet/Base) + registry + decode (16 pass)
 DESIGN.md                            full design: matrix, architecture, Uniswap + CRE integration
 ```
 
@@ -50,6 +53,23 @@ router, then verifies the result by **balance deltas**: `tokenIn spent <= amount
 `tokenOut received >= minOut`. That post-condition makes the vault agnostic to the router's calldata
 format and immune to a lying Trading API (output redirection → `received` short → revert; input
 substitution → `spent > amountIn` → revert), so we never trust the API's opaque bytes.
+
+## Multi-user (StrategyRegistry)
+
+One workflow serves many users. Each user deploys their own `StrategyVault` and **self-registers** it
+in `StrategyRegistry` with their per-vault strategy params (token pair, fee, amount, slippage) — gated
+on `IOwned(vault).owner() == msg.sender`, so you can only register a vault you control. A user can
+**pause** their strategy (`setActive(vault, false)` — keeps the config) or **remove** it
+(`remove(vault)` — frees the row), both gated on the original registrant. Each tick the
+workflow does **one** `listActive()` read and **fans out**: per registered vault it pulls a live quote,
+builds the Action, and `writeReport`s to that vault — each in a try/catch so one failing vault never
+blocks the others. Every user's funds stay isolated in their own policy-bounded vault.
+
+**Live on Base:** registry `0xEe7162006cDbF88A07D18B21aD66285da4c7EFa2`, 2 vaults registered; simulate
+logs `2 active vault(s)` and serves both with live quotes. Scale: ~1 HTTP + 1 write per vault/tick →
+bounded by CRE per-run quotas; `maxVaults` caps the fan-out (shard across runs/workflows beyond it).
+The registry is read at `LATEST` block (not finalized — Base finality lags ~minutes, which would hide
+fresh registrations).
 
 ## Run the fork test
 

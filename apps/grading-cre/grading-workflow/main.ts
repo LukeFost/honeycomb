@@ -53,22 +53,27 @@ export type Config = {
 	jobId: number; // the bounty the CRON resolver settles
 };
 
-// --- Grade callback (from the grader) ---------------------------------------
-// See simulation/grade-callback.json.
-type GradeCallback = {
+// --- Callback (Architecture A: two TEEs write independently) ----------------
+// One HTTP trigger, dispatched by `kind`:
+//   kind="score"    — the Grader enclave's callback (carries the KMS signature)
+//   kind="validity" — the AI Attestor's callback (carries the verdict)
+// See simulation/score-callback.json and simulation/validity-callback.json.
+type Callback = {
+	kind?: "score" | "validity";
 	jobId?: number | string;
 	agentId?: number | string; // ERC-8004 agentId of the submitter
 	status?: string; // "completed" | "failed"
-	score?: number; // execution score 0..10000 (real backtest PnL, scaled)
+	// score callback:
+	score?: number; // execution score 0..10000
+	signature?: { v?: number; r?: string; s?: string }; // enclave KMS sig over keccak256(jobId,agentId,score)
+	// validity callback:
 	valid?: boolean; // AI validity verdict (valid && not hardcoded)
-	validityAttestation?: string; // Confidential AI Attester digest (bytes32 hex)
-	// Execution-enclave KMS signature over keccak256(jobId, agentId, score).
-	signature?: { v?: number; r?: string; s?: string };
+	validityAttestation?: string; // Confidential AI Attestor digest (bytes32 hex)
 };
 
 const ZERO_BYTES32 = "0x".padEnd(66, "0") as Hex;
-const RECORD_GRADE_ABI =
-	"uint256 jobId, uint256 agentId, uint16 score, bool valid, bytes32 validityAtt, uint8 v, bytes32 r, bytes32 s";
+const SCORE_ABI = "uint256 jobId, uint256 agentId, uint16 score, uint8 v, bytes32 r, bytes32 s";
+const VALIDITY_ABI = "uint256 jobId, uint256 agentId, bool valid, bytes32 validityAtt";
 const ACTION_ABI = "uint8 action, bytes data";
 
 /** Normalize a 32-byte hex digest (with or without 0x) to bytes32. */
@@ -102,11 +107,11 @@ const writeReport = (runtime: Runtime<Config>, encodedPayload: Hex) => {
 	return { txHash: reply.txHash ? toHex(reply.txHash) : null, error: reply.errorMessage ?? null };
 };
 
-// --- HTTP trigger: record a graded submission -------------------------------
+// --- HTTP trigger: dispatch a TEE callback (score OR validity) ---------------
 
-export const onGrade = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
-	const cb = JSON.parse(bytesToString(payload.input)) as GradeCallback;
-	runtime.log(`Grade received: job=${cb.jobId ?? "?"} agent=${cb.agentId ?? "?"} status=${cb.status ?? "?"}`);
+export const onCallback = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
+	const cb = JSON.parse(bytesToString(payload.input)) as Callback;
+	runtime.log(`Callback kind=${cb.kind ?? "?"} job=${cb.jobId ?? "?"} agent=${cb.agentId ?? "?"} status=${cb.status ?? "?"}`);
 
 	if (cb.status !== "completed") {
 		runtime.log(`Status not "completed"; skipping.`);
@@ -115,49 +120,41 @@ export const onGrade = (runtime: Runtime<Config>, payload: HTTPPayload): string 
 
 	const jobId = BigInt(cb.jobId ?? 0);
 	const agentId = BigInt(cb.agentId ?? 0);
-	const score = Math.max(0, Math.min(10000, Math.round(Number(cb.score ?? 0)))); // uint16
-	const valid = cb.valid === true;
-	const validityAtt = cb.validityAttestation ? toBytes32(cb.validityAttestation) : ZERO_BYTES32;
-	// Execution-enclave signature over keccak256(jobId, agentId, score); verified on-chain.
-	const v = Number(cb.signature?.v ?? 0);
-	const r = cb.signature?.r ? toBytes32(cb.signature.r) : ZERO_BYTES32;
-	const s = cb.signature?.s ? toBytes32(cb.signature.s) : ZERO_BYTES32;
-	runtime.log(
-		`recordGrade job=${jobId} agent=${agentId} score=${score} valid=${valid} v=${v} r=${r} s=${s}`,
-	);
+	let report: Hex;
+	let summary: Record<string, unknown>;
 
-	const inner = encodeAbiParameters(parseAbiParameters(RECORD_GRADE_ABI), [
-		jobId,
-		agentId,
-		score,
-		valid,
-		validityAtt,
-		v,
-		r,
-		s,
-	]);
-	const report = actionReport(0, inner);
+	if (cb.kind === "score") {
+		// Grader enclave callback: enclave-signed score, verified on-chain via ecrecover.
+		const score = Math.max(0, Math.min(10000, Math.round(Number(cb.score ?? 0))));
+		const v = Number(cb.signature?.v ?? 0);
+		const r = cb.signature?.r ? toBytes32(cb.signature.r) : ZERO_BYTES32;
+		const s = cb.signature?.s ? toBytes32(cb.signature.s) : ZERO_BYTES32;
+		runtime.log(`recordScore job=${jobId} agent=${agentId} score=${score} v=${v}`);
+		report = actionReport(0, encodeAbiParameters(parseAbiParameters(SCORE_ABI), [jobId, agentId, score, v, r, s]));
+		summary = { action: "recordScore", jobId: jobId.toString(), agentId: agentId.toString(), score };
+	} else if (cb.kind === "validity") {
+		// AI Attestor callback: verdict + attestation digest.
+		const valid = cb.valid === true;
+		const validityAtt = cb.validityAttestation ? toBytes32(cb.validityAttestation) : ZERO_BYTES32;
+		runtime.log(`recordValidity job=${jobId} agent=${agentId} valid=${valid} att=${validityAtt}`);
+		report = actionReport(1, encodeAbiParameters(parseAbiParameters(VALIDITY_ABI), [jobId, agentId, valid, validityAtt]));
+		summary = { action: "recordValidity", jobId: jobId.toString(), agentId: agentId.toString(), valid };
+	} else {
+		runtime.log(`unknown kind "${cb.kind}"; expected "score" or "validity".`);
+		return JSON.stringify({ action: "skipped", reason: "unknown kind" });
+	}
 
 	let write: Record<string, unknown> = { attempted: false };
 	try {
 		write = { attempted: true, ...writeReport(runtime, report) };
-		runtime.log(`recordGrade write: ${JSON.stringify(write)}`);
+		runtime.log(`write: ${JSON.stringify(write)}`);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		write = { attempted: true, error: message };
-		runtime.log(`recordGrade write failed (expected without --broadcast): ${message}`);
+		runtime.log(`write failed (expected without --broadcast): ${message}`);
 	}
 
-	return JSON.stringify({
-		action: "recordGrade",
-		jobId: jobId.toString(),
-		agentId: agentId.toString(),
-		score,
-		valid,
-		validityAttestationHash: validityAtt,
-		scoreSig: { v, r, s },
-		write,
-	});
+	return JSON.stringify({ ...summary, write });
 };
 
 // --- CRON trigger: time-based resolution ------------------------------------
@@ -167,7 +164,7 @@ export const onResolveTick = (runtime: Runtime<Config>): string => {
 	runtime.log(`Resolve tick at ${runtime.now().toISOString()} for job ${jobId}`);
 
 	const inner = encodeAbiParameters(parseAbiParameters("uint256 jobId"), [jobId]);
-	const report = actionReport(1, inner);
+	const report = actionReport(2, inner); // ACTION_RESOLVE
 
 	let write: Record<string, unknown> = { attempted: false };
 	try {
@@ -182,13 +179,13 @@ export const onResolveTick = (runtime: Runtime<Config>): string => {
 	return JSON.stringify({ action: "resolve", jobId: jobId.toString(), write });
 };
 
-// --- Wiring (trigger-index 0 = grade/HTTP, 1 = resolve/CRON) -----------------
+// --- Wiring (trigger-index 0 = callback/HTTP, 1 = resolve/CRON) --------------
 
 export const initWorkflow = (config: Config) => {
 	const http = new HTTPCapability();
 	const cron = new CronCapability();
 	return [
-		handler(http.trigger({ authorizedKeys: config.authorizedKeys }), onGrade),
+		handler(http.trigger({ authorizedKeys: config.authorizedKeys }), onCallback),
 		handler(cron.trigger({ schedule: config.schedule }), onResolveTick),
 	];
 };

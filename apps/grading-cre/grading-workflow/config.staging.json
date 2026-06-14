@@ -1,6 +1,6 @@
 {
   "authorizedKeys": [],
-  "consumerAddress": "",
+  "consumerAddress": "0x0000000000000000000000000000000000000000",
   "chainSelectorName": "ethereum-testnet-sepolia",
   "schedule": "*/30 * * * * *",
   "jobId": 2
