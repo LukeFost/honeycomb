@@ -9,6 +9,7 @@
 // @modelcontextprotocol/sdk and zod, so it installs anywhere Claude Code runs.
 //
 //   create_bounty     POST /bounties     [write token]
+//   resolve_early     POST /bounties/:id/resolve-early  [write token]
 //   get_job           GET  /jobs/:id
 //   list_jobs         GET  /jobs?limit=
 //   job_events        GET  /events?eventName=&jobId=&fromBlock=
@@ -150,6 +151,20 @@ server.registerTool(
 		},
 	},
 	async (args) => ok(await post("/bounties", args)),
+);
+
+// --- resolve_early ----------------------------------------------------------
+server.registerTool(
+	"resolve_early",
+	{
+		title: "Close a bounty early (maker)",
+		description:
+			"Close one of YOUR contests BEFORE its deadline (the 'close quick' path). Settles to the current best VALID leader, or refunds you if there is none — the escrow picks the winner, you only trigger settlement, so this can't be used to pick a favourite. BROADCASTS a real transaction; the escrow reverts unless you are the job's maker and it's a funded, unsettled contest. Requires SEP_PRIVATE_KEY.",
+		inputSchema: {
+			jobId: z.string().describe("The job id to close early. Must be a funded contest you created."),
+		},
+	},
+	async (args) => ok(await post(`/bounties/${encodeURIComponent(args.jobId)}/resolve-early`, {})),
 );
 
 // --- get_job ----------------------------------------------------------------

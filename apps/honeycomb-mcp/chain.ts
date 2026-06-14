@@ -127,6 +127,19 @@ export const ESCROW_ABI = [
 		outputs: [JOB_TUPLE],
 	},
 	{
+		// Maker-driven EARLY close (resolveEarly, the "close quick" path on the mainnet
+		// redeploy 0x90058162). Settles the contest BEFORE its deadline to the current
+		// best VALID leader (or refunds the maker if none). msg.sender must == the job
+		// client; the maker only TRIGGERS settlement for whoever legitimately leads, it
+		// cannot pick the winner — so the anti-cheat property holds. Shares _settle with
+		// the CRON _resolve, so it emits the SAME JobResolved/BountySettled events.
+		type: "function",
+		name: "resolveEarly",
+		stateMutability: "nonpayable",
+		inputs: [{ name: "jobId", type: "uint256" }],
+		outputs: [],
+	},
+	{
 		type: "function",
 		name: "isSettled",
 		stateMutability: "view",

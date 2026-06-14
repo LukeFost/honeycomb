@@ -29,6 +29,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { createBounty } from "../honeycomb-mcp/tools/createBounty.ts";
+import { resolveEarly } from "../honeycomb-mcp/tools/resolveEarly.ts";
 import { getJob, listJobs, jobEvents } from "../honeycomb-mcp/tools/monitor.ts";
 import { queryReputation } from "../honeycomb-mcp/tools/reputation.ts";
 import { gradeSubmission } from "../honeycomb-mcp/tools/grade.ts";
@@ -180,6 +181,14 @@ async function route(req: Request): Promise<Response> {
 			}
 		}
 		return json(await createBounty(b));
+	}
+
+	// Maker closes a contest early (resolveEarly). The escrow itself enforces that
+	// the caller is the job client; this route just needs the write token + key.
+	const resolveMatch = pathname.match(/^\/bounties\/(.+)\/resolve-early$/);
+	if (m === "POST" && resolveMatch) {
+		requireWriteAuth(req);
+		return json(await resolveEarly({ jobId: decodeURIComponent(resolveMatch[1]) }));
 	}
 
 	if (m === "POST" && pathname === "/grade") {
