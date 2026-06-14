@@ -4,7 +4,8 @@
 // grader POSTs to the CRE workflow's HTTP trigger.
 //
 // Two jobs, deliberately separated:
-//   • executionGrade() — *** STUB ***  run the code against the test datasets.
+//   • executionGrade() — REAL  run the submission against the PRIVATE series in an
+//                              isolated process (scorer.py / lp_scorer.py), real PnL.
 //   • attestValidity() — REAL  call the Chainlink Confidential AI Attester (TEE
 //                              LLM) to attest the code is valid / not hardcoded.
 //
