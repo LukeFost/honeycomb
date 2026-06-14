@@ -95,11 +95,14 @@ export function loadRelayerKey(): `0x${string}` {
 	if (fromEnv) return normalizePk(fromEnv, "env RELAYER_PRIVATE_KEY");
 
 	const service = process.env.RELAYER_KEYCHAIN_SERVICE?.trim() || "rfq-cfd-deployer-pk";
+	// Match on service name ALONE -- the canonical read recipe across this repo.
+	// Do NOT add `-a $USER`: $USER is the unix login (e.g. "lukefoster") but the
+	// item's keychain account may be an email (e.g. "lukefosteraz@gmail.com"), and
+	// an over-constrained lookup misses the item, throws, and kills boot. The
+	// service name is unique, so `-s` alone is the correct selector.
 	const proc = Bun.spawnSync([
 		"security",
 		"find-generic-password",
-		"-a",
-		process.env.USER ?? "",
 		"-s",
 		service,
 		"-w",
