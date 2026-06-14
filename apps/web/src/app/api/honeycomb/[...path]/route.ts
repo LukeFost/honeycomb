@@ -27,7 +27,9 @@ export const dynamic = "force-dynamic";
 
 // Only these upstream paths are reachable through the proxy. Keeps the catch-all
 // from being a generic open relay and documents the surface in one place.
-const READ_PATHS = new Set(["jobs", "events", "reputation", "skill"]);
+// "logs" is a public read upstream (the api redacts secrets at the source), so it
+// proxies through the GET path with no auth just like jobs/events.
+const READ_PATHS = new Set(["jobs", "events", "reputation", "skill", "logs"]);
 const WRITE_PATHS = new Set(["grade", "bounties", "submit", "snapshot"]);
 
 /** Join the catch-all segments back into an upstream path, preserving the query. */
