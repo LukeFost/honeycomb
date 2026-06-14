@@ -12,6 +12,7 @@ export type TrustCategory = "organic" | "thin" | "sybil";
 
 export type TrustAgent = {
   agentId: number;
+  owner: string;
   name: string | null;
   avgScore: number;
   trustScore: number;
@@ -58,6 +59,7 @@ function toAgent(r: AgentTrustRow): TrustAgent {
   const flags = r.flags ?? "";
   return {
     agentId: Number(r.agent_id),
+    owner: (r.owner ?? "").toLowerCase(),
     name: cleanName(r.name),
     avgScore: Number(r.avg_score),
     trustScore: Number(r.trust_score),

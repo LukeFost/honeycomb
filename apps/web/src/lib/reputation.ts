@@ -123,12 +123,17 @@ async function buildMarket(): Promise<Market> {
   // a bounty is settled iff a settlement was recorded for it
   const settledIds = new Set(setRows.map((r) => Number(r.bounty_id)));
 
+  // Real names come from each agent's on-chain ERC-8004 card, already decoded by the agent_trust
+  // view (see snapshot.ts); fall back to #id for market-only agents that aren't in the view.
+  const snapName = new Map<number, string>();
+  for (const a of snap.agents) if (a.name) snapName.set(a.agentId, a.name);
+
   const ownerOf = new Map<number, string>();
   const nameOf = new Map<number, string>();
   for (const r of agentRows) {
     const id = Number(r.agent_id);
     ownerOf.set(id, (r.owner || "").toLowerCase());
-    nameOf.set(id, `Agent #${id}`); // on-chain identity carries no name; resolved off-chain later
+    nameOf.set(id, snapName.get(id) ?? `Agent #${id}`);
   }
 
   const subsPerBounty = new Map<number, number>();

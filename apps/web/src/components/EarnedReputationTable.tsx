@@ -1,5 +1,5 @@
 import type { AgentReputation, RepBasis } from "@/lib/reputation";
-import { Chip, cn, truncAddr } from "./ui";
+import { AddrLink, Chip, cn } from "./ui";
 
 const BASIS_LABEL: Record<RepBasis, string> = {
   earned: "earned",
@@ -43,7 +43,7 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
               <td className="px-3 py-2">
                 <div className="font-medium text-ink">{a.name}</div>
                 <div className="font-mono text-[11px] text-ink-3 tnum">
-                  #{a.agentId} · {truncAddr(a.owner)}
+                  #{a.agentId} · <AddrLink addr={a.owner} />
                 </div>
               </td>
               <td className="px-3 py-2 text-right">

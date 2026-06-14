@@ -8,6 +8,7 @@ import { queryRows } from "./bqClient";
 /** A row of honeycomb.agent_trust, as BigQuery returns it (snake_case columns). */
 export type AgentTrustRow = {
   agent_id: number;
+  owner: string | null;
   name: string | null;
   avg_score: number;
   feedback_count: number;

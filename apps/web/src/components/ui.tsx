@@ -9,6 +9,24 @@ export function truncAddr(addr: string, head = 6, tail = 4): string {
   return `${addr.slice(0, head)}…${addr.slice(-tail)}`;
 }
 
+/** A truncated wallet address linking to its Etherscan page. The link is meaningful on the
+ *  live-mainnet path; in the local demo the address still distinguishes agents even though
+ *  Etherscan won't have it. Renders nothing for an empty address. */
+export function AddrLink({ addr, className }: { addr: string; className?: string }) {
+  if (!addr) return null;
+  return (
+    <a
+      href={`https://etherscan.io/address/${addr}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={addr}
+      className={cn("transition-colors hover:text-gold hover:underline", className)}
+    >
+      {truncAddr(addr)}
+    </a>
+  );
+}
+
 /** The honeycomb mark: a honey hexagon with a smaller hex cut out (cutout shows the paper). */
 export function Hex({ size = 28 }: { size?: number }) {
   return (

@@ -385,8 +385,9 @@ END;`;
  *  analysis/erc8004_trust.csv (the deleted trust_score.py, docs plan §10.3). A
  *  client reviewing >= `ringBreadth` distinct agents is treated as a sybil/ring
  *  wallet; an agent's trust is its avg feedback score discounted by how few
- *  INDEPENDENT (non-ring) reviewers it has. name/services/x402 are off-chain
- *  enrichment (Phase 4) and stay NULL until resolved; agent_uri is on-chain. */
+ *  INDEPENDENT (non-ring) reviewers it has. name/services/x402 are decoded from the
+ *  agent's on-chain ERC-8004 card (a base64 data: URI in agent_uri); for ipfs/https
+ *  URIs they stay NULL until a Phase-4 off-chain resolver fetches the card. */
 export function agentTrustViewSql(ds = HONEYCOMB_DATASET, ringBreadth = 10): string {
   return `CREATE OR REPLACE VIEW \`${ds}.agent_trust\` AS
 WITH
@@ -419,7 +420,7 @@ WITH
   scored AS (
     SELECT
       a.agent_id, a.feedback_count, a.unique_clients, a.avg_score,
-      a.reviewer_ring, a.independent_clients, r.agent_uri,
+      a.reviewer_ring, a.independent_clients, r.agent_uri, r.owner,
       IF(r.owner IS NOT NULL
          AND EXISTS(SELECT 1 FROM per_fb p WHERE p.agent_id = a.agent_id AND p.client = r.owner),
          1, 0) AS self_feedback
@@ -440,10 +441,21 @@ WITH
           * IF(reviewer_ring >= ${ringBreadth}, 0.5, 1.0) ) AS base_mult
       FROM scored
     ) base
+  ),
+  carded AS (  -- decode the agent's on-chain ERC-8004 card (base64 data: URI). NULL for
+               -- ipfs/https URIs — those a Phase-4 off-chain resolver fetches instead.
+    SELECT
+      mult.*,
+      IF(STARTS_WITH(agent_uri, 'data:application/json;base64,'),
+         SAFE_CONVERT_BYTES_TO_STRING(SAFE.FROM_BASE64(
+           SUBSTR(agent_uri, LENGTH('data:application/json;base64,') + 1))),
+         NULL) AS card
+    FROM mult
   )
 SELECT
   agent_id,
-  CAST(NULL AS STRING)                  AS name,            -- off-chain enrichment (Phase 4)
+  owner,                                                      -- on-chain agent owner (ERC-721)
+  JSON_VALUE(card, '$.name')            AS name,              -- from the on-chain agent card
   avg_score,
   feedback_count,
   unique_clients,
@@ -460,10 +472,11 @@ SELECT
     IF(reviewer_ring >= ${ringBreadth}, CONCAT('reviewed by ring wallet (breadth ', CAST(CAST(TRUNC(reviewer_ring) AS INT64) AS STRING), '); '), ''),
     IF(independent_clients >= 5, 'broad independent client base; ', '')
   ), '; '), ''), 'clean')               AS flags,
-  FALSE                                 AS x402_resolved,   -- off-chain enrichment (Phase 4)
-  CAST(NULL AS STRING)                  AS services,        -- off-chain enrichment (Phase 4)
+  COALESCE(SAFE_CAST(JSON_VALUE(card, '$.x402') AS BOOL), FALSE) AS x402_resolved,  -- from the card
+  (SELECT STRING_AGG(JSON_VALUE(s, '$.name'), ',')
+     FROM UNNEST(JSON_EXTRACT_ARRAY(card, '$.services')) AS s)  AS services,        -- from the card
   agent_uri
-FROM mult
+FROM carded
 ORDER BY trust_score DESC, unique_clients DESC`;
 }
 
@@ -471,7 +484,7 @@ ORDER BY trust_score DESC, unique_clients DESC`;
  *  raw logs — safe to put behind a short TTL cache and hit per request. */
 export function agentTrustSelectSql(ds = HONEYCOMB_DATASET): string {
   return `SELECT
-      agent_id, name, avg_score, feedback_count, unique_clients,
+      agent_id, owner, name, avg_score, feedback_count, unique_clients,
       independent_clients, reviewer_ring, trust_mult, trust_score,
       flags, x402_resolved, services, agent_uri
     FROM \`${ds}.agent_trust\`

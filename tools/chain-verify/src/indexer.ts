@@ -5,6 +5,9 @@
 // ⚠️ This is a TEST fixture loader, NOT a production ingestion path. Production Layer-1 still
 // reads mainnet via BigQuery's public dataset (sponsor constraint §3). See the plan doc §5.
 import { createPublicClient, http, type Address, type Hex } from "viem";
+import { writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getClient, testDataset, bqLocation } from "./bqClient";
 
 type LogRow = {
@@ -60,8 +63,22 @@ async function main() {
   }
 
   const { bq } = getClient();
-  await bq.dataset(testDataset(), { location: bqLocation() }).table("logs").insert(rows);
-  console.log(`Inserted ${rows.length} log row(s) into ${testDataset()}.logs from ${address}`);
+  // Use a LOAD job, not a streaming insert. The demo drops+recreates the dataset on every `up`,
+  // and BigQuery's streaming path (tabledata.insertAll) returns 404 "table not found" for minutes
+  // after a same-name table is recreated (stale streaming metadata) — which made `seed` flaky
+  // right after a reset. A load job goes through the job API, which sees the table immediately.
+  const ndjson = rows.map((r) => JSON.stringify(r)).join("\n");
+  const tmp = join(tmpdir(), `honeycomb-logs-${process.pid}-${Date.now()}.ndjson`);
+  await writeFile(tmp, ndjson);
+  try {
+    await bq
+      .dataset(testDataset(), { location: bqLocation() })
+      .table("logs")
+      .load(tmp, { sourceFormat: "NEWLINE_DELIMITED_JSON", writeDisposition: "WRITE_APPEND" });
+  } finally {
+    await rm(tmp, { force: true });
+  }
+  console.log(`Loaded ${rows.length} log row(s) into ${testDataset()}.logs from ${address}`);
 }
 
 main().catch((e) => {

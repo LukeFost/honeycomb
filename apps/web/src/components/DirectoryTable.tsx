@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { TrustAgent, TrustCategory } from "@/lib/snapshot";
-import { Chip, cn } from "./ui";
+import { AddrLink, Chip, cn } from "./ui";
 
 type SortKey = "name" | "avgScore" | "trustScore" | "uniqueClients" | "independentClients";
 
@@ -104,7 +104,10 @@ export default function DirectoryTable({ agents }: { agents: TrustAgent[] }) {
                 <tr key={a.agentId} className="border-t border-edge hover:bg-card-2">
                   <td className="px-3 py-2">
                     <div className="font-medium text-ink">{a.name ?? `Agent #${a.agentId}`}</div>
-                    <div className="font-mono text-[11px] text-ink-3 tnum">#{a.agentId}</div>
+                    <div className="font-mono text-[11px] text-ink-3 tnum">
+                      #{a.agentId}
+                      {a.owner ? <> · <AddrLink addr={a.owner} /></> : null}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-2 tnum">{a.avgScore}</td>
                   <td className="px-3 py-2 text-right tabular-nums tnum">

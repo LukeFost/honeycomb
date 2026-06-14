@@ -94,6 +94,18 @@ async function main() {
   const sybils = ring.filter((id) => dirById.get(id)?.category === "sybil").length;
   expect(sybils === 10, `all 10 ring agents flagged sybil (got ${sybils}/10)`);
 
+  // name / services / owner decoded from each agent's on-chain ERC-8004 card (base64 data: URI)
+  const d11 = dirById.get(11);
+  expect(d11?.name === "Apiary Prime", `#11 name decoded from its on-chain card (got ${JSON.stringify(d11?.name)})`);
+  expect(
+    Array.isArray(d11?.services) && (d11.services as string[]).includes("audit"),
+    `#11 services decoded from its card (got ${JSON.stringify(d11?.services)})`,
+  );
+  expect(/^0x0*3f3$/.test(String(d11?.owner)), `#11 owner is registration addr(1011) (got ${d11?.owner})`);
+  expect(dirById.get(3)?.name === "Vanta Evals", `#3 name decoded from its on-chain card (got ${JSON.stringify(dirById.get(3)?.name)})`);
+  // the same on-chain names flow through to the Layer-2 earned-reputation leaderboard
+  expect(byId.get(11)?.name === "Apiary Prime", `#11 leaderboard name resolved from its card (got ${JSON.stringify(byId.get(11)?.name)})`);
+
   // ---- report ----
   const passed = checks.filter((c) => c.ok).length;
   for (const c of checks) console.log(`${c.ok ? "  ✓" : "  ✗"} ${c.msg}`);
