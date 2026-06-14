@@ -1,5 +1,5 @@
 import type { Bounty } from "@/lib/reputation";
-import { Chip, truncAddr } from "./ui";
+import { AddrLink, Chip } from "./ui";
 
 const CATEGORY_LABEL: Record<string, string> = {
   "smart-contract-audit": "SC audit",
@@ -32,7 +32,7 @@ export default function BountyBoard({ bounties }: { bounties: Bounty[] }) {
             </div>
             <div className="mb-3 text-sm font-medium leading-snug text-ink">{b.title}</div>
             <div className="mt-auto flex items-center justify-between text-[11px] text-ink-2">
-              <span className="font-mono">{truncAddr(b.requester)}</span>
+              <AddrLink addr={b.requester} className="font-mono" />
               <span className="tnum">{b.submissions} subs</span>
               <span className={daysLeft <= 5 ? "text-gold" : ""}>closes {label} · {daysLeft}d</span>
             </div>

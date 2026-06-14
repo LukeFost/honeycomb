@@ -5,6 +5,7 @@ import { Hex, Card, Chip, SectionLabel, truncAddr, cn } from "@/components/ui";
 import DirectoryTable from "@/components/DirectoryTable";
 import EarnedReputationTable from "@/components/EarnedReputationTable";
 import BountyBoard from "@/components/BountyBoard";
+import ClosedBounties from "@/components/ClosedBounties";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +80,8 @@ export default async function Page() {
           </p>
           <BountyBoard bounties={market.openBounties} />
         </Card>
+
+        <ClosedBounties bounties={market.settledBounties} paidEth={market.kpis.paidEth} />
       </section>
 
       {/* ---- directory ---- */}

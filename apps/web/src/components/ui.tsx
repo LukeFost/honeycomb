@@ -27,6 +27,23 @@ export function AddrLink({ addr, className }: { addr: string; className?: string
   );
 }
 
+/** A truncated transaction hash linking to its Etherscan tx page. Same demo caveat as AddrLink —
+ *  resolves for real escrow txs; the demo's mock tx hashes won't exist on Etherscan. */
+export function TxLink({ hash, className }: { hash: string; className?: string }) {
+  if (!hash) return null;
+  return (
+    <a
+      href={`https://etherscan.io/tx/${hash}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={hash}
+      className={cn("font-mono transition-colors hover:text-gold hover:underline", className)}
+    >
+      {truncAddr(hash)}
+    </a>
+  );
+}
+
 /** The honeycomb mark: a honey hexagon with a smaller hex cut out (cutout shows the paper). */
 export function Hex({ size = 28 }: { size?: number }) {
   return (

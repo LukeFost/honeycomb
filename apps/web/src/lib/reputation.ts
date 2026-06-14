@@ -29,6 +29,16 @@ export type Bounty = {
   createdAt: string;
   deadline: string;
   submissions: number;
+  txHash: string; // creation tx (BountyCreated)
+};
+
+export type SettledBounty = Bounty & {
+  winnerAgentId: number;
+  winnerName: string;
+  winnerOwner: string;
+  winnerScore: number;
+  attestationHash: string;
+  settlementTxHash: string;
 };
 
 export type RepBasis = "earned" | "cold-start" | "unproven";
@@ -57,6 +67,7 @@ export type Market = {
   agents: AgentReputation[];
   bounties: Bounty[];
   openBounties: Bounty[];
+  settledBounties: SettledBounty[];
   categories: CategoryStat[];
   validator: string; // the enclave address that signed the validations
   asOf: string | null; // freshness of the live ERC-8004 trust prior (ISO)
@@ -77,14 +88,14 @@ export type Market = {
 type AgentRow = { agent_id: number; owner: string | null; agent_uri: string | null };
 type BountyRow = {
   bounty_id: number; requester: string | null; category: string; title: string;
-  reward_eth: number; created_at: string; deadline: string;
+  reward_eth: number; created_at: string; deadline: string; tx_hash: string | null;
 };
 type SubmissionRow = { bounty_id: number; agent_id: number; submission_cid: string | null };
 type ValidationRow = {
   bounty_id: number; agent_id: number; validator: string | null; response: number; valid: boolean;
   response_hash: string | null;
 };
-type SettlementRow = { bounty_id: number; winner_agent_id: number; winner_score: number; attestation_hash: string | null };
+type SettlementRow = { bounty_id: number; winner_agent_id: number; winner_score: number; attestation_hash: string | null; tx_hash: string | null };
 
 const COLD_START_DISCOUNT = 0.5; // a newcomer's global ERC-8004 trust is a weak prior only
 
@@ -154,6 +165,7 @@ async function buildMarket(): Promise<Market> {
       createdAt: r.created_at,
       deadline: r.deadline,
       submissions: subsPerBounty.get(id) ?? 0,
+      txHash: r.tx_hash ?? "",
     };
     bountyById.set(id, b);
     return b;
@@ -254,6 +266,25 @@ async function buildMarket(): Promise<Market> {
   const openBounties = bounties.filter((b) => b.status === "open");
   const settled = bounties.filter((b) => b.status === "settled");
 
+  // enrich settled bounties with their on-chain winner + settlement provenance (for the
+  // collapsible "Closed bounties" panel): winner_agent_id/score/attestation come from the
+  // BountySettled event; the winner's owner/name resolve through the same maps the leaderboard uses.
+  const settlementByBounty = new Map<number, SettlementRow>();
+  for (const r of setRows) settlementByBounty.set(Number(r.bounty_id), r);
+  const settledBounties: SettledBounty[] = settled.map((b) => {
+    const s = settlementByBounty.get(b.id);
+    const winnerAgentId = s ? Number(s.winner_agent_id) : -1;
+    return {
+      ...b,
+      winnerAgentId,
+      winnerName: nameOf.get(winnerAgentId) ?? `Agent #${winnerAgentId}`,
+      winnerOwner: ownerOf.get(winnerAgentId) ?? "",
+      winnerScore: s ? Number(s.winner_score) : 0,
+      attestationHash: s?.attestation_hash ?? "",
+      settlementTxHash: s?.tx_hash ?? "",
+    };
+  });
+
   const catMap = new Map<string, CategoryStat>();
   for (const b of bounties) {
     const c = catMap.get(b.category) ?? { name: b.category, total: 0, open: 0, rewardEth: 0 };
@@ -267,6 +298,7 @@ async function buildMarket(): Promise<Market> {
     agents,
     bounties,
     openBounties,
+    settledBounties,
     categories: [...catMap.values()].sort((a, b) => b.total - a.total),
     validator: (valRows[0]?.validator ?? "").toLowerCase(),
     asOf: snap.asOf,

@@ -696,7 +696,7 @@ export function refreshSettlementsSql(wmIso: string, ds = HONEYCOMB_DATASET): st
 
 /** Serving reads for the Layer-2 market (small decoded tables — never the raw logs). */
 export function selectBountiesSql(ds = HONEYCOMB_DATASET): string {
-  return `SELECT bounty_id, requester, category, title, reward_eth,
+  return `SELECT bounty_id, requester, category, title, reward_eth, tx_hash,
       FORMAT_TIMESTAMP('%Y-%m-%d', created_at) AS created_at,
       FORMAT_TIMESTAMP('%Y-%m-%d', deadline)   AS deadline
     FROM \`${ds}.bounties\` ORDER BY bounty_id`;
@@ -708,7 +708,7 @@ export function selectValidationsSql(ds = HONEYCOMB_DATASET): string {
   return `SELECT bounty_id, agent_id, validator, response, valid, response_hash FROM \`${ds}.validations\``;
 }
 export function selectSettlementsSql(ds = HONEYCOMB_DATASET): string {
-  return `SELECT bounty_id, winner_agent_id, winner_score, attestation_hash FROM \`${ds}.settlements\``;
+  return `SELECT bounty_id, winner_agent_id, winner_score, attestation_hash, tx_hash FROM \`${ds}.settlements\``;
 }
 /** Layer-2 agents = registered agents (id + owner) that are relevant to the market: they have
  *  on-chain reputation (appear in agent_trust) OR have participated (submitted / won a bounty).
