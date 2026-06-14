@@ -48,7 +48,7 @@ const PRIVATE_SERIES = IS_LP
 // content commitment over the graded inputs+output: it proves "this exact code,
 // graded against this exact private series, produced this exact score", and is
 // verifiable later against the on-chain scoreAttestationHash. It is NOT a
-// hardware attestation yet — honest labeling per HARNESS_SPEC.md.
+// hardware attestation yet — honest labeling.
 function executionGrade(submissionPath: string, code: string, bountyId: string): {
 	score: number;
 	attestationDigest: string;

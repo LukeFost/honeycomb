@@ -4,7 +4,7 @@
 # enclave's registered signer address. Runs IN the Confidential Space container, using
 # the VM's attested service account -- no key material ever leaves the HSM.
 #
-# This is the Python port of the PROVEN smoke-test recipe (HARNESS_SPEC.md:161):
+# This is the Python port of the PROVEN smoke-test recipe:
 #   - KMS asymmetric_sign over digest SHA256 -> DER ECDSA sig.
 #   - parse DER -> (r, s); normalize low-s (EIP-2); ecrecover rejects high-s.
 #   - try recovery id 27/28; the one that recovers the KMS address is v.

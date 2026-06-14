@@ -43,8 +43,8 @@ const hours = Number(process.argv[3] ?? 1);
 const bountyDir = process.argv[4] ?? "maker/bounties/uniswap-lp-trading-bot";
 // Grader enclave's score signer (ecrecover target, BountyEscrow.sol:248) + maker's
 // X25519 delivery pubkey. Both are sent on-chain to the 6-arg createBounty; the
-// contract reverts on a zero attester or maker key. Live KMS signer (apps/grading-
-// cre/grader/HANDOFF.md:88). Override MAKER_PUBKEY with the real maker key.
+// contract reverts on a zero attester or maker key. ATTESTER is the live KMS
+// score-signer. Override MAKER_PUBKEY with the real maker key.
 const ATTESTER = process.env.ATTESTER ?? "0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F";
 const MAKER_PUBKEY = process.env.MAKER_PUBKEY ?? `0x${"11".repeat(32)}`;
 
