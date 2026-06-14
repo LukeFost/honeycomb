@@ -104,9 +104,14 @@ const send = (args: string[]) => cast(["send", ...args, "--private-key", PK as s
 console.error(`[maker] reward=${reward} mUSDC  budget=${budget}  deadline=+${hours}h  testsHash=${testsHash}`);
 console.error(`[maker] specCid=${specCid}  attesterKey=${ATTESTER_KEY}`);
 
-// 2. approve the escrow to pull the reward.
+// 2. approve the escrow to pull the reward. `cast send` exits 0 even when the tx
+//    mined-but-reverted, so inspect the receipt status: a reverted approve would
+//    otherwise surface later as an opaque createBounty revert on transferFrom.
 console.error(`[maker] approving ${budget} to escrow...`);
-send([USDC, "approve(address,uint256)", ESCROW, budget.toString()]);
+const approveReceipt = JSON.parse(send([USDC, "approve(address,uint256)", ESCROW, budget.toString()]));
+if (approveReceipt.status !== "0x1") {
+	throw new Error(`approve reverted (status=${approveReceipt.status}, tx=${approveReceipt.transactionHash})`);
+}
 
 // 3. createBounty — read the real jobId from the JobCreated event (topics[1]),
 //    not nextJobId (a concurrent creation could shift it).

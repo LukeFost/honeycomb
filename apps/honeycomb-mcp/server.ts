@@ -57,7 +57,7 @@ server.registerTool(
 	{
 		title: "Create a Honeycomb bounty",
 		description:
-			"Open + fund a bounty (ERC-8183 Job) on BountyEscrow (Sepolia). Hashes the private bundle (rubric + scoring + private series) into testsHash, approves the USDC reward, calls createBounty, and returns the on-chain jobId. BROADCASTS a real transaction; requires SEP_PRIVATE_KEY.",
+			"Open + fund a bounty (ERC-8183 Job) on BountyEscrow (Sepolia). Hashes every file under the bounty's private/ dir (sorted, raw bytes) into testsHash, approves the USDC reward, calls createBounty, and returns the on-chain jobId. BROADCASTS a real transaction; requires SEP_PRIVATE_KEY.",
 		inputSchema: {
 			rewardUSDC: z.number().positive().optional().describe("Reward in human USDC (6dp token). Default 50."),
 			hoursToDeadline: z.number().positive().optional().describe("Hours from now to the contest deadline. Default 1."),
@@ -71,7 +71,9 @@ server.registerTool(
 			privateFiles: z
 				.array(z.string())
 				.optional()
-				.describe("Override the private bundle file list (relative to bountyDir). Default: rubric.md, scoring.py, prices_private.json."),
+				.describe(
+					"ADVANCED override of the private bundle file list (relative to bountyDir). Leave unset: the default sorted walk of private/ matches create-bounty.ts's testsHash exactly. An explicit list will NOT reproduce the maker's digest.",
+				),
 		},
 	},
 	async (args) => ok(await createBounty(args)),

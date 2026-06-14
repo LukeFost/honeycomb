@@ -11,7 +11,7 @@ for on-chain reads/writes against **BountyEscrow on Sepolia**.
 
 | Tool | What it does | Writes? |
 | --- | --- | --- |
-| `create_bounty` | Hashes the private bundle (rubric + scoring + private series) into `testsHash`, approves the USDC reward, calls `createBounty`, returns the on-chain `jobId`. | **Yes — broadcasts a real tx** |
+| `create_bounty` | Hashes every file under the bounty's `private/` dir (sorted, raw bytes) into `testsHash`, approves the USDC reward, calls `createBounty`, returns the on-chain `jobId`. | **Yes — broadcasts a real tx** |
 | `get_job` | Full `Job` struct for one `jobId`: status, reward, deadline, current best *valid* grade, grade count, `isSettled`, winner wallet. | no |
 | `list_jobs` | Recent bounties, newest first (id, status, reward, deadline, best agent/score, grade count, specCid). | no |
 | `job_events` | Decoded `GradeRecorded` / `JobResolved` / `JobCreated` logs over a block range. Page-safe (chunks under the Goldsky 1k-block getLogs cap). | no |
