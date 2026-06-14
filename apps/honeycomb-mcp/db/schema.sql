@@ -103,12 +103,20 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   latency_ms  INTEGER NOT NULL,               -- wall-clock handler latency
   caller      TEXT,                           -- x-honeycomb-caller / user-agent, best effort
   remote_addr TEXT,                           -- client IP if surfaced by the runtime
+  agent_id    TEXT,                           -- ERC-8004 agentId the call belongs to, extracted at the chokepoint
   called_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- agent_id added after the table shipped; ADD ... IF NOT EXISTS so this applies
+-- cleanly to an existing tool_calls (the schema is re-run idempotently on boot).
+-- It is how the per-agent dashboard answers "what is this agent working on" —
+-- the chokepoint pulls agentId from the request body / query / register response.
+ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS agent_id TEXT;
 
 CREATE INDEX IF NOT EXISTS tool_calls_tool_idx ON tool_calls (tool);
 CREATE INDEX IF NOT EXISTS tool_calls_time_idx ON tool_calls (called_at DESC);
 CREATE INDEX IF NOT EXISTS tool_calls_ok_idx ON tool_calls (ok);
+CREATE INDEX IF NOT EXISTS tool_calls_agent_idx ON tool_calls (agent_id);
 
 -- gcs_objects: the off-chain content layer index. One row per content-addressed
 -- blob written to GCS — the bytes the on-chain specCid / encCid pointers resolve

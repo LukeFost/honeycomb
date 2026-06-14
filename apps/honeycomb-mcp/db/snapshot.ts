@@ -214,6 +214,40 @@ export async function recordGcsObject(o: {
 	}
 }
 
+// --- gcs_objects: READ the content-layer index --------------------------------
+// Query the off-chain content index recordGcsObject() populates: every spec /
+// sealed submission blob behind an on-chain specCid / encCid pointer, with its
+// content hash, size, and the job/agent/tx it belongs to. Read side of the index.
+//
+// Unlike the WRITER (fire-and-forget telemetry), this is a read tool a caller
+// explicitly invokes, so it FAILS LOUD: a missing DATABASE_URL or a query error
+// throws rather than returning an empty list that masks a misconfiguration.
+export async function listGcsObjects(args: {
+	jobId?: string;
+	kind?: "spec" | "submission";
+	limit?: number;
+} = {}) {
+	const limit = Math.min(Math.max(args.limit ?? 50, 1), 500);
+	const sql = db();
+	try {
+		await applySchema(sql); // idempotent; tolerates a fresh DB with no gcs_objects yet
+		// Optional equality filters, applied only when provided. Bun's tagged SQL
+		// parameterizes each interpolation, so these are bound params, not string-spliced.
+		const rows = await sql`
+			SELECT bucket, sha256, uri, kind, content_type, byte_len,
+			       job_id, agent_id, submit_tx, sealed, stored_at
+			FROM gcs_objects
+			WHERE (${args.jobId ?? null}::text IS NULL OR job_id = ${args.jobId ?? null})
+			  AND (${args.kind ?? null}::text  IS NULL OR kind   = ${args.kind ?? null})
+			ORDER BY stored_at DESC
+			LIMIT ${limit}
+		`;
+		return { count: rows.length, objects: rows };
+	} finally {
+		await sql.end();
+	}
+}
+
 // Run one full snapshot (schema + jobs upsert + events append) against a fresh
 // connection and return the counts. Exported so the always-on honeycomb-api can
 // trigger it in-process via POST /snapshot (Cloud Scheduler), independent of any

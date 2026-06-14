@@ -33,10 +33,11 @@ import { createBounty } from "../honeycomb-mcp/tools/createBounty.ts";
 import { createBountyDraft } from "../honeycomb-mcp/tools/createBountyDraft.ts";
 import { finalizeBounty } from "../honeycomb-mcp/tools/finalizeBounty.ts";
 import { resolveEarly } from "../honeycomb-mcp/tools/resolveEarly.ts";
-import { getJob, listJobs, jobEvents } from "../honeycomb-mcp/tools/monitor.ts";
+import { getJob, listJobs, jobEvents, listGcsObjects } from "../honeycomb-mcp/tools/monitor.ts";
 import { queryReputation } from "../honeycomb-mcp/tools/reputation.ts";
 import { gradeSubmission } from "../honeycomb-mcp/tools/grade.ts";
 import { submitWork } from "../honeycomb-mcp/tools/submitWork.ts";
+import { registerAgent } from "../honeycomb-mcp/tools/registerAgent.ts";
 import { resolveSpec } from "../honeycomb-mcp/tools/resolveSpec.ts";
 import { runSnapshot } from "../honeycomb-mcp/db/snapshot.ts";
 import { record as recordToolCall } from "../honeycomb-mcp/db/telemetry.ts";
@@ -162,6 +163,21 @@ async function route(req: Request): Promise<Response> {
 		);
 	}
 
+	// Off-chain content-layer index (Neon gcs_objects): the spec / sealed-submission
+	// blobs the on-chain specCid/encCid pointers resolve into. Read-only; the rows
+	// hold content hashes + sizes + job/agent links, NOT plaintext (submissions are
+	// sealed ciphertext). ?jobId, ?kind=spec|submission, ?limit.
+	if (m === "GET" && pathname === "/gcs") {
+		const kind = url.searchParams.get("kind") as "spec" | "submission" | null;
+		return json(
+			await listGcsObjects({
+				jobId: url.searchParams.get("jobId") ?? undefined,
+				kind: kind ?? undefined,
+				limit: numParam(url, "limit"),
+			}),
+		);
+	}
+
 	// Resolve a bounty's specCid to its public spec markdown. Read-only and
 	// unauthenticated: the spec is the public side of a bounty (agents need it to
 	// decide whether to compete). ?cid=<specCid> from get_job / list_jobs.
@@ -277,6 +293,19 @@ async function route(req: Request): Promise<Response> {
 		return json(await submitWork(b as Parameters<typeof submitWork>[0]));
 	}
 
+	// Mint an ERC-8004 agent identity. register() is a real on-chain tx signed by the
+	// server's key (SUBMIT_PRIVATE_KEY/SEP_PRIVATE_KEY), so it's behind the write token.
+	// registerAgent pre-checks the signer's gas balance and throws (no broadcast) if it
+	// can't pay — the route just forwards the optional tokenURI.
+	if (m === "POST" && pathname === "/agents/register") {
+		requireWriteAuth(req);
+		const b = await body(req);
+		if ("tokenURI" in b && typeof b.tokenURI !== "string") {
+			throw new HttpError("tokenURI, if provided, must be a string", 400);
+		}
+		return json(await registerAgent(b as Parameters<typeof registerAgent>[0]));
+	}
+
 	// Snapshot the live chain into Neon (jobs upsert + events append). Triggered
 	// on a schedule by Cloud Scheduler against this always-on instance, so the
 	// chain data records continuously without any laptop or Claude session. Reads
@@ -310,8 +339,26 @@ function toolName(method: string, pathname: string): string {
 	if (/^\/bounties\/[^/]+\/resolve-early$/.test(pathname)) return "resolve_early";
 	if (pathname === "/grade") return "grade_submission";
 	if (pathname === "/submit") return "submit_work";
+	if (pathname === "/agents/register") return "register_agent";
 	if (pathname === "/snapshot") return "snapshot";
 	return `${method} ${pathname}`;
+}
+
+// Resolve the ERC-8004 agentId a call belongs to, for the tool_calls.agent_id
+// column (powers the per-agent dashboard's "what is this agent working on").
+// Best-effort and never throws — telemetry must not fail the underlying call.
+// Order: request body agentId (grade/submit), then query param agentId
+// (reputation feedback), then the minted id from a register_agent response.
+function resolveAgentId(reqBody: unknown, query: Record<string, string>, resBody: unknown): string | null {
+	const fromObj = (o: unknown): string | null => {
+		if (o && typeof o === "object" && "agentId" in o) {
+			const v = (o as Record<string, unknown>).agentId;
+			if (typeof v === "string" && v.trim()) return v;
+			if (typeof v === "number") return String(v);
+		}
+		return null;
+	};
+	return fromObj(reqBody) ?? (query.agentId?.trim() ? query.agentId : null) ?? fromObj(resBody);
 }
 
 // --- boot -------------------------------------------------------------------
@@ -361,17 +408,20 @@ Bun.serve({
 				.clone()
 				.text()
 				.then((resText) => {
+					const reqParsed = parseBodyForLog(reqBodyText);
+					const resParsed = parseBodyForLog(resText);
 					recordToolCall({
 						tool: toolName(req.method, url.pathname),
 						method: req.method,
 						path: url.pathname,
 						query: Object.keys(query).length ? query : null,
-						request: parseBodyForLog(reqBodyText),
-						response: parseBodyForLog(resText),
+						request: reqParsed,
+						response: resParsed,
 						status: res.status,
 						latencyMs,
 						caller: req.headers.get("x-honeycomb-caller") ?? req.headers.get("user-agent"),
 						remoteAddr: server?.requestIP(req)?.address ?? null,
+						agentId: resolveAgentId(reqParsed, query, resParsed),
 					});
 				})
 				.catch(() => {

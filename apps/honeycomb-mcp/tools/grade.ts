@@ -72,6 +72,11 @@ export const gradeSubmissionInput = {
 	},
 	jobId: { type: "string", description: "ERC-8183 job id to stamp on the callback. Default 1." },
 	agentId: { type: "string", description: "ERC-8004 agentId of the submitter. Default 22." },
+	encCid: {
+		type: "string",
+		description:
+			"Sealed-submission CID (gcs://...) registered on-chain by submit(). When set AND the enclave backend is active, the enclave fetches + opens it inside the TEE so the plaintext never leaves it; the local validity grade still reads submissionPath. Ignored on the local-only backend. Optional.",
+	},
 } as const;
 
 export async function gradeSubmission(args: {
@@ -79,6 +84,7 @@ export async function gradeSubmission(args: {
 	bounty?: string;
 	jobId?: string;
 	agentId?: string;
+	encCid?: string;
 }) {
 	if (!args.submissionPath) throw new Error("submissionPath is required");
 
@@ -93,14 +99,25 @@ export async function gradeSubmission(args: {
 	}
 
 	// Stage 2: re-grade execution in the warm TEE for a KMS-signed, on-chain-recomputable
-	// score digest. The enclave wants the submission SOURCE (it writes its own temp file),
-	// not a path, so read the file here.
-	const code = readFileSync(repoPath(args.submissionPath), "utf8");
-	const bundle = await gradeViaEnclave({
-		code,
-		jobId: args.jobId ?? "1",
-		agentId: args.agentId ?? "22",
-	});
+	// score digest. Two ways to hand the submission to the enclave:
+	//   • encCid set  -> SEALED path. Send only the on-chain encCid; the enclave fetches the
+	//     sealed ciphertext from GCS and opens it with its own secret INSIDE the TEE, so the
+	//     plaintext is never read here and never crosses the wire. This is the private path
+	//     the submit flow uses (submitWork seals -> encCid -> grade).
+	//   • encCid unset -> INLINE path. Read the source and POST it as `code` (the standalone
+	//     /grade route, which grades a path with no prior seal).
+	// The enclave requires exactly one of code/encCid, so we send exactly one.
+	const bundle = args.encCid
+		? await gradeViaEnclave({
+				encCid: args.encCid,
+				jobId: args.jobId ?? "1",
+				agentId: args.agentId ?? "22",
+			})
+		: await gradeViaEnclave({
+				code: readFileSync(repoPath(args.submissionPath), "utf8"),
+				jobId: args.jobId ?? "1",
+				agentId: args.agentId ?? "22",
+			});
 
 	// Merge: the enclave's signed score+digest are authoritative and supersede the local
 	// content-commitment scoreAttestation. Validity stays from the local grader. We surface
@@ -148,11 +165,15 @@ async function gradeLocal(args: {
 	return { ...callback, graderLog: stderr.trim() };
 }
 
-// Stage 2: POST the submission source to the warm grading enclave (Confidential Space) and
-// return its KMS-signed grade bundle {jobId, agentId, score, scoreDigest, signature:{r,s,v},
-// signer}. No silent fallback: a transport error or non-200 throws loudly so /grade reports
-// the enclave failure rather than masking it with the local score.
-async function gradeViaEnclave(req: { code: string; jobId: string; agentId: string }): Promise<{
+// Stage 2: POST the submission to the warm grading enclave (Confidential Space) and return its
+// KMS-signed grade bundle {jobId, agentId, score, scoreDigest, signature:{r,s,v}, signer}.
+// The submission is handed over as EXACTLY ONE of `code` (inline plaintext) or `encCid` (the
+// sealed CID the enclave fetches+opens itself); the server rejects zero-or-both. No silent
+// fallback: a transport error or non-200 throws loudly so /grade reports the enclave failure
+// rather than masking it with the local score.
+async function gradeViaEnclave(
+	req: { jobId: string; agentId: string } & ({ code: string; encCid?: never } | { encCid: string; code?: never }),
+): Promise<{
 	jobId: number;
 	agentId: number;
 	score: number;
@@ -161,13 +182,15 @@ async function gradeViaEnclave(req: { code: string; jobId: string; agentId: stri
 	signer: string;
 }> {
 	const url = `${GRADER_ENCLAVE_URL}/grade`;
+	// Send exactly the one source we were handed (the enclave enforces this too).
+	const source = "encCid" in req ? { encCid: req.encCid } : { code: req.code };
 	let res: Response;
 	try {
 		res = await fetch(url, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
-				code: req.code,
+				...source,
 				jobId: Number(req.jobId),
 				agentId: Number(req.agentId),
 			}),

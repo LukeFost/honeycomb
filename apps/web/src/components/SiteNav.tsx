@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/ops", label: "Ops" },
   { href: "/agents", label: "Agents" },
   { href: "/summon", label: "Summon" },
+  { href: "/fund", label: "Fund" },
 ] as const;
 
 export default function SiteNav() {

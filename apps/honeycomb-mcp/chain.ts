@@ -35,9 +35,15 @@ export const ESCROW = (process.env.ESCROW ??
 	(MAINNET
 		? "0x90058162D3d55542f39507d0328538824A24C9C3"   // e2e escrow (canonical forwarder + resolveEarly)
 		: "0xce27EEDE3b033582e1Adec94F8679d3feEF142c2")) as Address;
+// Funding/reward token. Mainnet = REAL Circle USDC (FiatTokenV2, EIP-3009-capable;
+// EIP-712 domain "USD Coin"/"2" verified on-chain 2026-06-14 against its live
+// DOMAIN_SEPARATOR). Sepolia = MockUSDCv2. Override with USDC for a custom token
+// (e.g. the staging MockUSDC 0x8f938d9d to test the mainnet rail without real
+// money). The x402 token name/version (apps/honeycomb-mcp/x402.ts) MUST match the
+// chosen token's domain or every funder signature fails verification.
 export const USDC = (process.env.USDC ??
 	(MAINNET
-		? "0x8f938d9d2099Ac04fb3D47e7ACC15be8B955161d"   // mainnet MockUSDC
+		? "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"   // mainnet real USDC (Circle)
 		: "0x3211C5E4B4d57B673d67a976699121667f419e17")) as Address;
 // Execution enclave's score-signer. createBounty registers this as the job's
 // attesterKey; the escrow ecrecovers each recorded grade against it (BountyEscrow
@@ -264,10 +270,18 @@ export const ESCROW_ABI = [
 	},
 ] as const;
 
-// ERC-8004 Identity Registry (read-only here). submit() ecrecovers msg.sender
-// against getAgentWallet(agentId), so submitWork reads this to fail loud on a
-// registry mismatch BEFORE broadcasting a sure-to-revert submit. Called against
-// IDENTITY_REGISTRY, not ESCROW.
+// ERC-8004 Identity Registry. The registry is an ERC-721 — an agent is an NFT,
+// minted to msg.sender by register(). submit() ecrecovers msg.sender against
+// getAgentWallet(agentId), so submitWork reads getAgentWallet to fail loud on a
+// registry mismatch BEFORE broadcasting a sure-to-revert submit.
+//
+// register surface (verified on-chain 2026-06-14 against the live mainnet registry
+// 0x8004a169fb4a3325136eb29fa0ceb6d2e539a432 via its UUPS impl 0x7274e874): three
+// overloads — register() mints with no metadata; register(string) sets a tokenURI/
+// domain at mint; the tuple overload sets metadata keys. We expose the two an agent
+// actually self-registers with. register* MINTS to msg.sender, so the minting wallet
+// becomes the agent's wallet — which is exactly what getAgentWallet returns and what
+// the escrow's submit() requires. Called against IDENTITY_REGISTRY, not ESCROW.
 export const IDENTITY_ABI = [
 	{
 		type: "function",
@@ -275,6 +289,31 @@ export const IDENTITY_ABI = [
 		stateMutability: "view",
 		inputs: [{ name: "agentId", type: "uint256" }],
 		outputs: [{ name: "", type: "address" }],
+	},
+	{
+		type: "function",
+		name: "register",
+		stateMutability: "nonpayable",
+		inputs: [],
+		outputs: [{ name: "agentId", type: "uint256" }],
+	},
+	{
+		type: "function",
+		name: "register",
+		stateMutability: "nonpayable",
+		inputs: [{ name: "tokenURI", type: "string" }],
+		outputs: [{ name: "agentId", type: "uint256" }],
+	},
+	// Emitted by register*: Registered(agentId indexed, tokenURI, owner indexed). We
+	// parse it from the tx receipt to learn the minted agentId without a follow-up read.
+	{
+		type: "event",
+		name: "Registered",
+		inputs: [
+			{ name: "agentId", type: "uint256", indexed: true },
+			{ name: "tokenURI", type: "string", indexed: false },
+			{ name: "owner", type: "address", indexed: true },
+		],
 	},
 ] as const;
 

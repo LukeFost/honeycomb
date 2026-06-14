@@ -57,22 +57,37 @@ export type AgentEarnings = {
   source: "honeycomb-api";
 };
 
-// --- roster: every agent that has shown up in grades or events --------------
-
-/** All agents seen, with grade count + best score + last activity. Empty when
- *  Neon is unconfigured. Built from `grades` (agent-keyed) primarily. */
+// --- roster: every agent the MCP has actually interacted with ----------------
+//
+// This is the "agents-neon" roster: the population the MCP has SEEN, drawn from
+// both Neon agent-keyed tables -- tool_calls (any interaction, incl. register)
+// and grades (graded work). Distinct from the chain-registry roster served by
+// /api/agents (ERC-8004 trust directory from BigQuery): that is "who is registered
+// on-chain / is it sybil", this is "who has the MCP touched, and what have they done".
+// We keep both and label the difference, per the product decision.
 export async function listAgents(): Promise<AgentSummary[]> {
   if (!dbEnabled()) return [];
   const q = sql();
+  // Union the two agent-keyed sources, then fold to one row per agent: grade
+  // stats come from grades, "last seen" is the latest of either table.
   const rows = (await q`
-    SELECT agent_id                       AS "agentId",
-           count(*)::int                  AS "gradeCount",
-           max(score)::int                AS "bestScore",
-           to_char(max(graded_at), 'YYYY-MM-DD"T"HH24:MI:SSZ') AS "lastSeen"
-    FROM grades
-    WHERE agent_id IS NOT NULL
-    GROUP BY agent_id
-    ORDER BY count(*) DESC, max(graded_at) DESC
+    WITH seen AS (
+      SELECT agent_id, called_at AS at, NULL::int AS score FROM tool_calls WHERE agent_id IS NOT NULL
+      UNION ALL
+      SELECT agent_id, graded_at AS at, score        FROM grades     WHERE agent_id IS NOT NULL
+    ),
+    graded AS (
+      SELECT agent_id, count(*)::int AS gc, max(score)::int AS bs
+      FROM grades WHERE agent_id IS NOT NULL GROUP BY agent_id
+    )
+    SELECT s.agent_id                                        AS "agentId",
+           COALESCE(g.gc, 0)                                 AS "gradeCount",
+           g.bs                                              AS "bestScore",
+           to_char(max(s.at), 'YYYY-MM-DD"T"HH24:MI:SSZ')    AS "lastSeen"
+    FROM seen s
+    LEFT JOIN graded g ON g.agent_id = s.agent_id
+    GROUP BY s.agent_id, g.gc, g.bs
+    ORDER BY max(s.at) DESC
     LIMIT 200
   `) as AgentSummary[];
   return rows;
@@ -101,10 +116,10 @@ export async function agentGrades(agentId: string, limit = 50): Promise<GradeRow
 
 // --- one agent: in-flight activity (what I'm working on) --------------------
 //
-// tool_calls has no agent_id column, so "what an agent is working on" is best
-// surfaced from recent grade/submit calls. We scan tool_calls whose request
-// body carries this agentId. This is best-effort (telemetry is fire-and-forget)
-// and intentionally recent-only.
+// tool_calls.agent_id is populated at the honeycomb-api chokepoint (resolveAgentId:
+// request body agentId -> query agentId -> register response). So "what an agent is
+// working on" is the agent's recent tool calls, newest first. Best-effort: telemetry
+// is fire-and-forget, so absence of rows means no recorded calls, not necessarily idle.
 
 export async function agentActivity(agentId: string, limit = 25): Promise<ActivityRow[]> {
   if (!dbEnabled()) return [];
@@ -117,7 +132,7 @@ export async function agentActivity(agentId: string, limit = 25): Promise<Activi
            ok,
            to_char(called_at, 'YYYY-MM-DD"T"HH24:MI:SSZ') AS "calledAt"
     FROM tool_calls
-    WHERE request->>'agentId' = ${agentId}
+    WHERE agent_id = ${agentId}
     ORDER BY called_at DESC
     LIMIT ${limit}
   `) as ActivityRow[];

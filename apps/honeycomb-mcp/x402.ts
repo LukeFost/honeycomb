@@ -20,21 +20,26 @@
 // ============================================================================
 
 import type { Address, Hex } from "viem";
+import { MAINNET } from "./chain.ts";
 
 // Facilitator base URL. Default matches apps/web (FACILITATOR_URL, :4021 local).
 const FACILITATOR_URL = (process.env.FACILITATOR_URL ?? "http://localhost:4021").replace(/\/+$/, "");
 
 const X402_VERSION = 2;
 
-// CAIP-2 network for the settlement chain. Sepolia by default (the proven rail);
-// the mainnet flip sets X402_NETWORK=eip155:1. Kept separate from HONEYCOMB_CHAIN
-// so the funding chain and the escrow chain can be reasoned about independently.
-export const X402_NETWORK = process.env.X402_NETWORK ?? "eip155:11155111";
+// CAIP-2 network for the settlement chain. Tracks HONEYCOMB_CHAIN by default
+// (mainnet -> eip155:1, else Sepolia eip155:11155111) so the funding chain and the
+// escrow chain stay aligned out of the box; override X402_NETWORK to decouple them.
+export const X402_NETWORK = process.env.X402_NETWORK ?? (MAINNET ? "eip155:1" : "eip155:11155111");
 
 // EIP-712 domain name+version of the funding token. MUST match the token's
-// DOMAIN_SEPARATOR (MockUSDCv2 = "Mock USD Coin"/"2"). The facilitator rebuilds
-// the domain from these to verify the funder's signature.
-export const X402_TOKEN_NAME = process.env.X402_TOKEN_NAME ?? "Mock USD Coin";
+// DOMAIN_SEPARATOR or the facilitator rejects every funder signature. Defaults
+// track the chain's default token: mainnet real USDC = "USD Coin"/"2" (verified
+// on-chain 2026-06-14), Sepolia MockUSDCv2 = "Mock USD Coin"/"2". Override
+// X402_TOKEN_NAME/_VERSION if USDC points at a non-default token (e.g. the mainnet
+// staging MockUSDC, which is "Mock USD Coin"/"2").
+export const X402_TOKEN_NAME =
+	process.env.X402_TOKEN_NAME ?? (MAINNET ? "USD Coin" : "Mock USD Coin");
 export const X402_TOKEN_VERSION = process.env.X402_TOKEN_VERSION ?? "2";
 
 // The EIP-3009 authorization a funder signs and echoes back at finalize. All

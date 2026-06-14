@@ -16,8 +16,10 @@
 //   list_jobs         GET  /jobs?limit=
 //   job_events        GET  /events?eventName=&jobId=&fromBlock=
 //   query_reputation  GET  /reputation?mode=&agentId=&limit=
+//   list_gcs_objects  GET  /gcs?jobId=&kind=&limit=
 //   grade_submission  POST /grade         [write token]
-//   submit_work       POST /submit        [write token]
+//   submit_work       POST /submit             [write token]
+//   register_agent    POST /agents/register    [write token]
 //   get_skill         GET  /skill         (text/markdown)
 //
 // Config (env):
@@ -270,11 +272,11 @@ server.registerTool(
 	{
 		title: "Read bounty events",
 		description:
-			"Fetch decoded ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated logs from BountyEscrow over a block range. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
+			"Fetch decoded ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated / Submitted logs from BountyEscrow over a block range. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced); Submitted fires when an agent registers a sealed submission CID. Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
 		inputSchema: {
 			jobId: z.string().optional().describe("Filter to one job id. Omit for all jobs."),
 			eventName: z
-				.enum(["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated"])
+				.enum(["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated", "Submitted"])
 				.optional()
 				.describe("Which event. Default ScoreRecorded."),
 			fromBlock: z.string().optional().describe("Start block (decimal or hex). Default: last ~5000 blocks."),
@@ -300,6 +302,22 @@ server.registerTool(
 	async (args) => ok(await getJson(`/reputation${qs({ mode: args.mode, agentId: args.agentId, limit: args.limit })}`)),
 );
 
+// --- list_gcs_objects -------------------------------------------------------
+server.registerTool(
+	"list_gcs_objects",
+	{
+		title: "List off-chain content blobs",
+		description:
+			"Query the off-chain content-layer index (Neon): the spec and sealed-submission blobs the on-chain specCid/encCid pointers resolve into. Each row is content-addressed (sha256 == GCS object name) with its size and the job/agent/tx it belongs to. Submission rows are SEALED ciphertext, not plaintext. Use to see what content a bounty has behind its on-chain pointers.",
+		inputSchema: {
+			jobId: z.string().optional().describe("Filter to one bounty's blobs. Omit for all."),
+			kind: z.enum(["spec", "submission"]).optional().describe("Filter by blob kind. Omit for both."),
+			limit: z.number().int().positive().optional().describe("Max rows, newest first. Default 50, max 500."),
+		},
+	},
+	async (args) => ok(await getJson(`/gcs${qs({ jobId: args.jobId, kind: args.kind, limit: args.limit })}`)),
+);
+
 // --- grade_submission -------------------------------------------------------
 server.registerTool(
 	"grade_submission",
@@ -312,6 +330,12 @@ server.registerTool(
 			bounty: z.enum(["directional", "lp"]).optional().describe("Scorer to use. Default directional."),
 			jobId: z.string().optional().describe("Job id to stamp on the callback. Default 1."),
 			agentId: z.string().optional().describe("ERC-8004 agentId of the submitter. Default 22."),
+			encCid: z
+				.string()
+				.optional()
+				.describe(
+					"Sealed-submission CID (gcs://...) from a prior submit. When set AND the enclave backend is active, the enclave fetches + opens it inside the TEE so the plaintext never leaves it; submit_work passes this automatically. Optional.",
+				),
 		},
 	},
 	async (args) => ok(await post("/grade", args)),
@@ -332,6 +356,25 @@ server.registerTool(
 		},
 	},
 	async (args) => ok(await post("/submit", args)),
+);
+
+// --- register_agent ---------------------------------------------------------
+server.registerTool(
+	"register_agent",
+	{
+		title: "Register an agent identity (ERC-8004)",
+		description:
+			"Mint an ERC-8004 agent identity so you can compete in bounties. The registry is an ERC-721: this BROADCASTS a real register() tx that mints an agent NFT to the server's signing wallet, and that wallet becomes the agent's registered wallet (what submit() checks). Returns your new agentId. Fails loudly — with the address to fund — if the signer can't cover gas; never reports a fake registration.",
+		inputSchema: {
+			tokenURI: z
+				.string()
+				.optional()
+				.describe(
+					"Optional agent metadata URI / domain recorded on-chain at mint. Omit to mint a bare identity.",
+				),
+		},
+	},
+	async (args) => ok(await post("/agents/register", args)),
 );
 
 // --- get_skill --------------------------------------------------------------

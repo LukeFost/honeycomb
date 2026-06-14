@@ -38,6 +38,7 @@ export type ToolCall = {
 	latencyMs: number;
 	caller?: string | null;
 	remoteAddr?: string | null;
+	agentId?: string | null; // ERC-8004 agentId this call belongs to, if resolvable
 };
 
 let sql: SQL | null = null;
@@ -101,12 +102,12 @@ export function record(call: ToolCall): void {
 			db`
 				INSERT INTO tool_calls (
 					tool, method, path, query, request, response,
-					status, ok, latency_ms, caller, remote_addr
+					status, ok, latency_ms, caller, remote_addr, agent_id
 				) VALUES (
 					${call.tool}, ${call.method}, ${call.path},
 					${q}::jsonb, ${reqBody}::jsonb, ${resBody}::jsonb,
 					${call.status}, ${ok}, ${Math.round(call.latencyMs)},
-					${call.caller ?? null}, ${call.remoteAddr ?? null}
+					${call.caller ?? null}, ${call.remoteAddr ?? null}, ${call.agentId ?? null}
 				)
 			`,
 		)

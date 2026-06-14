@@ -1,9 +1,11 @@
 // ============================================================================
 // Read-only job monitoring against BountyEscrow on Sepolia.
-//   get_job    — full Job struct + isSettled + winner wallet for one jobId
-//   list_jobs  — getJob over [1 .. nextJobId-1], compact rows
-//   job_events — decode ScoreRecorded / ValidityRecorded / NewLeader / JobCreated
-//                / JobResolved logs over a block range
+//   get_job          — full Job struct + isSettled + winner wallet for one jobId
+//   list_jobs        — getJob over [1 .. nextJobId-1], compact rows
+//   job_events       — decode ScoreRecorded / ValidityRecorded / NewLeader /
+//                      JobCreated / JobResolved / Submitted logs over a block range
+//   list_gcs_objects — query the off-chain content-layer index in Neon (the spec /
+//                      sealed-submission blobs the on-chain specCid/encCid resolve to)
 // ============================================================================
 
 import { type Hex } from "viem";
@@ -13,6 +15,7 @@ import {
 	decodeJob,
 	publicClient,
 } from "../chain.ts";
+import { listGcsObjects } from "../db/snapshot.ts";
 
 async function readJob(jobId: bigint) {
 	const raw = await publicClient.readContract({
@@ -143,3 +146,21 @@ export async function jobEvents(args: { jobId?: string; eventName?: string; from
 	});
 	return { eventName, fromBlock: fromBlock.toString(), toBlock: tip.toString(), count: events.length, events };
 }
+
+// --- list_gcs_objects -------------------------------------------------------
+// Read the off-chain content-layer index (Neon `gcs_objects`): the spec and
+// sealed-submission blobs the on-chain specCid/encCid pointers resolve into. The
+// implementation lives in db/snapshot.ts (next to the DB connection + writer);
+// re-exported here so it sits with the other read tools and is registered through
+// the same front door. Requires DATABASE_URL; fails loud if absent (read tool).
+export const listGcsObjectsInput = {
+	jobId: { type: "string", description: "Filter to one bounty's blobs (the job_id link). Optional." },
+	kind: {
+		type: "string",
+		enum: ["spec", "submission"],
+		description: "Filter by blob kind: 'spec' (public markdown) or 'submission' (sealed ciphertext). Optional.",
+	},
+	limit: { type: "number", description: "Max rows, newest first. Default 50, max 500." },
+} as const;
+
+export { listGcsObjects };

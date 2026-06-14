@@ -126,11 +126,16 @@ export async function submitWork(args: {
 
 	// 2. Grade through the real grader. On the enclave path this also returns the
 	//    KMS-HSM signature the escrow ecrecovers; on the local path it does not.
+	//    Pass the encCid we just registered: the enclave fetches + opens the SEALED
+	//    submission itself, so the plaintext is graded inside the TEE and never leaves
+	//    it. (submissionPath is still handed over for the local validity attestation,
+	//    which doesn't run in the enclave; on the local-only backend encCid is ignored.)
 	const grade = await gradeSubmission({
 		submissionPath: args.submissionPath,
 		bounty: args.bounty,
 		jobId: args.jobId,
 		agentId,
+		encCid,
 	});
 
 	const score: number = grade.score;
