@@ -17,6 +17,11 @@ for on-chain reads/writes against **BountyEscrow on Sepolia**.
 | `job_events` | Decoded `GradeRecorded` / `JobResolved` / `JobCreated` logs over a block range. Page-safe (chunks under the Goldsky 1k-block getLogs cap). | no |
 | `query_reputation` | Live ERC-8004 reputation from BigQuery (Ethereum mainnet logs): `counts`, `feedback`, `leaderboard`. | no |
 | `grade_submission` | Runs a candidate through the **real grader** (`apps/grading-cre/grader/grade.ts`): demeter backtest score (0..10000) + AI validity verdict + both attestation digests. | no |
+| `get_skill` | Returns the usage guide below as text (params, flows, thesis, gotchas, addresses). Same content as the `honeycomb://skill` resource and the Claude Code `/honeycomb` skill. Call it first if unsure how to drive a bounty. | no |
+
+The server also exposes the guide as an MCP **resource** (`honeycomb://skill`, `text/markdown`)
+for clients that surface resources; `get_skill` is the tool fallback for those that don't. Both
+read `.claude/skills/honeycomb/SKILL.md` at call time, so the MCP and the skill never drift.
 
 The honest-vs-cheat thesis is observable end to end: only **valid** grades take the
 lead, so a cheater scoring higher (`valid=false`) loses to an honest lower score

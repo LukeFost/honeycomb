@@ -17,6 +17,9 @@
 // Run:  bun apps/honeycomb-mcp/server.ts
 // ============================================================================
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -32,6 +35,21 @@ const server = new McpServer({ name: "honeycomb", version: "0.1.0" });
 const ok = (data: unknown) => ({
 	content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
 });
+
+// The how-to-use guide IS the Claude Code skill at .claude/skills/honeycomb/SKILL.md
+// (repo root, three levels up from this file). Read it at call time so the MCP and the
+// skill never drift — one source of truth. Strip the YAML frontmatter; the body is the
+// usage guide. Exposed two ways: an MCP *resource* (honeycomb://skill, the canonical way
+// a client surfaces reference text) and a get_skill *tool* (fallback for clients that
+// call tools but don't list resources). Both share this loader.
+const SKILL_PATH = fileURLToPath(new URL("../../.claude/skills/honeycomb/SKILL.md", import.meta.url));
+
+function loadSkill(): string {
+	const raw = readFileSync(SKILL_PATH, "utf8");
+	// Drop a leading `---\n...\n---\n` frontmatter block if present.
+	const fm = raw.match(/^---\n[\s\S]*?\n---\n/);
+	return (fm ? raw.slice(fm[0].length) : raw).trim();
+}
 
 // --- create_bounty ----------------------------------------------------------
 server.registerTool(
@@ -129,6 +147,37 @@ server.registerTool(
 		},
 	},
 	async (args) => ok(await gradeSubmission(args)),
+);
+
+// --- honeycomb://skill (resource) -------------------------------------------
+// The full usage guide as a readable resource. A client can list + read this to
+// learn the lifecycle and exact tool params without the .claude/skills file.
+server.registerResource(
+	"honeycomb-skill",
+	"honeycomb://skill",
+	{
+		title: "Honeycomb skill — how to use these tools",
+		description:
+			"The Honeycomb bounty-lifecycle guide: the 6 tools, their params, common flows (open/grade/watch a bounty), the honest-vs-cheat thesis, verified gotchas, and Sepolia addresses. Same content as the Claude Code /honeycomb skill.",
+		mimeType: "text/markdown",
+	},
+	async (uri) => ({
+		contents: [{ uri: uri.href, mimeType: "text/markdown", text: loadSkill() }],
+	}),
+);
+
+// --- get_skill (tool) -------------------------------------------------------
+// Same guide as a tool call, for clients that invoke tools but don't surface
+// MCP resources. Returns the markdown verbatim.
+server.registerTool(
+	"get_skill",
+	{
+		title: "Get the Honeycomb usage guide",
+		description:
+			"Return the Honeycomb skill: how to use the other tools (params, common flows, the honest-vs-cheat thesis, gotchas, Sepolia addresses). Call this first if you're unsure how to drive a bounty. Same content as the honeycomb://skill resource.",
+		inputSchema: {},
+	},
+	async () => ({ content: [{ type: "text" as const, text: loadSkill() }] }),
 );
 
 // --- boot -------------------------------------------------------------------
