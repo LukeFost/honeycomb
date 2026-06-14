@@ -51,12 +51,12 @@ export async function listJobs(args: { limit?: number }) {
 		abi: ESCROW_ABI,
 		functionName: "nextJobId",
 	})) as bigint;
-	const last = Number(next) - 1; // ids run 1..nextJobId-1
-	if (last < 1) return { count: 0, nextJobId: next.toString(), jobs: [] };
+	const last = next - 1n; // ids run 1..nextJobId-1; stay in BigInt (ids can exceed 2^53)
+	if (last < 1n) return { count: 0, nextJobId: next.toString(), jobs: [] };
 
 	const limit = args.limit ?? 25;
 	const ids: bigint[] = [];
-	for (let i = last; i >= 1 && ids.length < limit; i--) ids.push(BigInt(i));
+	for (let i = last; i >= 1n && ids.length < limit; i--) ids.push(i);
 
 	const jobs = await Promise.all(
 		ids.map(async (id) => {

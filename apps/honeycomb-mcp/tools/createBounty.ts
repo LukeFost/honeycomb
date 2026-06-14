@@ -7,10 +7,11 @@
 // ============================================================================
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { decodeEventLog, type Hex } from "viem";
 import {
+	ATTESTER_KEY,
 	ESCROW,
 	ESCROW_ABI,
 	ERC20_ABI,
@@ -18,13 +19,21 @@ import {
 	publicClient,
 	walletFromEnv,
 } from "../chain.ts";
+import { type Address } from "viem";
 
 // grading-cre root, resolved relative to this file (apps/honeycomb-mcp/tools -> apps/grading-cre).
 const GRADING_CRE = join(import.meta.dir, "..", "..", "grading-cre");
 
-// Fixed bundle order — MUST match create-bounty.ts so the testsHash commitment
-// is reproducible by anyone holding the private files.
-const PRIVATE_FILES = ["private/rubric.md", "private/scoring.py", "private/prices_private.json"];
+// testsHash digests EVERY file under <bountyDir>/private/, sorted. This MUST
+// byte-match create-bounty.ts (apps/grading-cre/maker/create-bounty.ts:52-54):
+// sorted readdir of private/, each file read utf8, joined with "\n--FILE--\n".
+// A fixed list here previously diverged from the maker's sorted walk and
+// produced a DIFFERENT on-chain testsHash for the identical bundle.
+function bundlePrivateDir(bountyDir: string): string {
+	const dir = join(bountyDir, "private");
+	const files = readdirSync(dir).sort();
+	return files.map((f) => readFileSync(join(dir, f), "utf8")).join("\n--FILE--\n");
+}
 
 export const createBountyInput = {
 	rewardUSDC: { type: "number", description: "Reward in human USDC (6-decimal token). E.g. 50." },
@@ -42,7 +51,12 @@ export const createBountyInput = {
 		type: "array",
 		items: { type: "string" },
 		description:
-			"Override the private bundle file list (relative to bountyDir). Default matches create-bounty.ts: rubric.md, scoring.py, prices_private.json.",
+			"ADVANCED override of the private bundle file list (paths relative to bountyDir). Leave unset: the default sorted dir-walk of private/ matches create-bounty.ts's testsHash exactly. An explicit list will NOT reproduce the maker's digest.",
+	},
+	attesterKey: {
+		type: "string",
+		description:
+			"Execution enclave's score-signer address (STAGED: the deployed escrow is still 4-arg, so this is surfaced in the result but not yet sent on-chain; it binds grades via ecrecover once the 5-arg createBounty is redeployed). Default: the live KMS score-signer.",
 	},
 } as const;
 
@@ -52,15 +66,31 @@ export async function createBounty(args: {
 	bountyDir?: string;
 	specCid?: string;
 	privateFiles?: string[];
+	attesterKey?: string;
 }) {
 	const reward = args.rewardUSDC ?? 50;
 	const hours = args.hoursToDeadline ?? 1;
 	const relDir = args.bountyDir ?? "maker/bounties/uniswap-lp-trading-bot";
-	const bountyDir = isAbsolute(relDir) ? relDir : join(GRADING_CRE, relDir);
-	const files = args.privateFiles ?? PRIVATE_FILES;
+	// A relative bountyDir MUST stay under apps/grading-cre — the docstring promises
+	// it and the bundle gets read + hashed + committed on-chain, so an unbounded
+	// "../../" would read (and disclose the digest of) arbitrary files. An absolute
+	// path is honored as a deliberate operator opt-out.
+	const bountyDir = isAbsolute(relDir) ? relDir : resolve(GRADING_CRE, relDir);
+	if (!isAbsolute(relDir)) {
+		const root = resolve(GRADING_CRE);
+		if (bountyDir !== root && !bountyDir.startsWith(root + sep)) {
+			throw new Error(`bountyDir escapes apps/grading-cre: ${relDir}`);
+		}
+	}
+	const attesterKey = (args.attesterKey ?? ATTESTER_KEY) as Address;
 
-	// 1. Commit to the PRIVATE bundle (fixed order, never published).
-	const bundle = files.map((f) => readFileSync(join(bountyDir, f), "utf8")).join("\n--FILE--\n");
+	// 1. Commit to the PRIVATE bundle (never published). Default: the same sorted
+	//    dir-walk the maker uses, so the testsHash is byte-identical regardless of
+	//    which path opened the bounty. An explicit privateFiles override is honored
+	//    but will NOT match the maker's digest — only use it if you know why.
+	const bundle = args.privateFiles
+		? args.privateFiles.map((f) => readFileSync(join(bountyDir, f), "utf8")).join("\n--FILE--\n")
+		: bundlePrivateDir(bountyDir);
 	const testsHash = ("0x" + createHash("sha256").update(bundle).digest("hex")) as Hex;
 
 	const budget = BigInt(Math.round(reward * 1e6));
@@ -79,6 +109,10 @@ export async function createBounty(args: {
 	await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
 	// 3. createBounty, then recover the real jobId from JobCreated (topics[1]).
+	// 4-arg: matches the DEPLOYED escrow (chain.ts ESCROW_ABI). The source contract
+	// adds a 5th `attesterKey` arg (G11 score-binding) but is NOT redeployed; add
+	// `attesterKey` to args[] in lockstep with the redeploy. attesterKey is resolved
+	// + surfaced below so the tool's I/O is forward-ready, but it is NOT sent yet.
 	const createHash_ = await wallet.writeContract({
 		address: ESCROW,
 		abi: ESCROW_ABI,
@@ -111,6 +145,7 @@ export async function createBounty(args: {
 		deadlineISO: new Date(Number(deadline) * 1000).toISOString(),
 		testsHash,
 		specCid,
+		attesterKey,
 		approveTx: approveHash,
 		createTx: createHash_,
 		escrow: ESCROW,

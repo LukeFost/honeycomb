@@ -1,8 +1,9 @@
 """ERC-8004 reputation reader for the Honeycomb MCP server.
 
-Reuses analysis/bqenv.py for BigQuery auth + config (service-account key, billing
-project, window start). Emits one JSON object on stdout so the TS MCP tool can
-shell out and parse it.
+Self-contained BigQuery auth + config (service-account key, billing project, window
+start) is inlined below — analysis/bqenv.py was removed when that dir was stripped to
+a dashboard, so this tool no longer depends on it. Emits one JSON object on stdout so
+the TS MCP tool can shell out and parse it.
 
 Subcommands:
   counts                       -> {agents_registered, feedback_events, window_start}
@@ -10,19 +11,50 @@ Subcommands:
   feedback                     -> recent NewFeedback rows across all agents
   leaderboard                  -> per-agent feedback count + latest score, top N
 
-All decode logic mirrors analysis/extract_raw.py / query_example.py.
+All decode logic mirrors the (former) analysis/extract_raw.py / query_example.py.
 """
 import argparse
 import json
 import os
-import sys
+import pathlib
 
-# bqenv lives in analysis/ — add it to the path, then import for its auth side effects.
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_ANALYSIS = os.path.normpath(os.path.join(_HERE, "..", "..", "analysis"))
-sys.path.insert(0, _ANALYSIS)
+# --- BigQuery auth + config (inlined from the former analysis/bqenv.py) ------
+# On import: load a .env searching this dir up to the repo root, then point
+# GOOGLE_APPLICATION_CREDENTIALS at <repo>/.secrets/gcp-key.json if unset. The
+# only secret is the gitignored JSON key. Billing project / window from env.
+_HERE = pathlib.Path(__file__).resolve().parent
 
-import bqenv  # noqa: E402  (side-effecting: sets GOOGLE_APPLICATION_CREDENTIALS + loads .env)
+
+def _roots():
+    """Yield this dir then ancestors, stopping at the git repo root."""
+    yield _HERE
+    for p in _HERE.parents:
+        yield p
+        if (p / ".git").is_dir():
+            break
+
+
+for _root in _roots():
+    _envf = _root / ".env"
+    if _envf.is_file():
+        for _line in _envf.read_text().splitlines():
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line:
+                continue
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+        break
+
+if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+    for _root in _roots():
+        _key = _root / ".secrets" / "gcp-key.json"
+        if _key.is_file():
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(_key)
+            break
+
+BILLING_PROJECT = os.environ.get("BQ_BILLING_PROJECT")  # unset -> client uses the key's project
+START = os.environ.get("BQ_START", "2026-05-14")
+
 from google.cloud import bigquery  # noqa: E402
 
 DATASET = "bigquery-public-data.goog_blockchain_ethereum_mainnet_us.logs"
@@ -31,7 +63,7 @@ REPUTATION_REGISTRY = "0x8004baa17c55a88189ae136b182e5fda19de9b63"
 REGISTERED_EVENT = "0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a"
 FEEDBACK_EVENT = "0x6a4a61743519c9d648a14e6493f47dbe3ff1aa29e7785c96c8326a205e58febc"
 
-_client = bigquery.Client(project=bqenv.BILLING_PROJECT)
+_client = bigquery.Client(project=BILLING_PROJECT)
 
 
 def _run(sql, params):
@@ -53,12 +85,12 @@ def counts():
         bigquery.ScalarQueryParameter("rep", "STRING", REPUTATION_REGISTRY),
         bigquery.ScalarQueryParameter("reg", "STRING", REGISTERED_EVENT),
         bigquery.ScalarQueryParameter("fb", "STRING", FEEDBACK_EVENT),
-        bigquery.ScalarQueryParameter("start", "STRING", bqenv.START),
+        bigquery.ScalarQueryParameter("start", "STRING", START),
     ])[0]
     return {
         "agents_registered": row["agents"],
         "feedback_events": row["feedback"],
-        "window_start": bqenv.START,
+        "window_start": START,
     }
 
 
@@ -88,13 +120,13 @@ def feedback(agent_id, limit):
     params = [
         bigquery.ScalarQueryParameter("rep", "STRING", REPUTATION_REGISTRY),
         bigquery.ScalarQueryParameter("fb", "STRING", FEEDBACK_EVENT),
-        bigquery.ScalarQueryParameter("start", "STRING", bqenv.START),
+        bigquery.ScalarQueryParameter("start", "STRING", START),
         bigquery.ScalarQueryParameter("limit", "INT64", limit),
     ]
     if agent_id is not None:
         params.append(bigquery.ScalarQueryParameter("agent", "INT64", agent_id))
     rows = _run(sql, params)
-    return {"window_start": bqenv.START, "count": len(rows), "feedback": [
+    return {"window_start": START, "count": len(rows), "feedback": [
         {
             "agent_id": r["agent_id"],
             "client": r["client"],
@@ -135,10 +167,10 @@ def leaderboard(limit):
     rows = _run(sql, [
         bigquery.ScalarQueryParameter("rep", "STRING", REPUTATION_REGISTRY),
         bigquery.ScalarQueryParameter("fb", "STRING", FEEDBACK_EVENT),
-        bigquery.ScalarQueryParameter("start", "STRING", bqenv.START),
+        bigquery.ScalarQueryParameter("start", "STRING", START),
         bigquery.ScalarQueryParameter("limit", "INT64", limit),
     ])
-    return {"window_start": bqenv.START, "count": len(rows), "leaderboard": [
+    return {"window_start": START, "count": len(rows), "leaderboard": [
         {
             "agent_id": r["agent_id"],
             "feedback_count": r["feedback_count"],

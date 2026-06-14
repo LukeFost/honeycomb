@@ -27,7 +27,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { LPDecision } from "./decision.ts";
 import { executeLPDecision } from "./executor.ts";
 import { poolForChain } from "./pools.ts";
-import { SEPOLIA_RPC } from "@honeycomb/chain/sepolia";
+import { SEPOLIA_RPC, redactRpc } from "@honeycomb/chain/sepolia";
 
 // FORK_RPC wins (point at a local `anvil --fork-url` for fork mode). Unset ->
 // the shared canonical Sepolia RPC, so this can also swing at LIVE Sepolia.
@@ -38,6 +38,26 @@ const CHAIN_ID = Number(process.env.FORK_CHAIN_ID ?? 11155111);
 // anvil account 0 — a PUBLIC, well-known test key. Never a real secret.
 const ANVIL_PK0 =
 	"0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as Hex;
+
+// Guard the live-vs-fork mismatch. We sign with the public anvil key, only
+// funded on a local fork. If RPC is not localhost and the user hasn't opted in,
+// refuse — a no-env run must not approve+mint against live Sepolia with a
+// globally-known key. Set I_UNDERSTAND_LIVE_BROADCAST=1 (with a funded signer)
+// to override.
+function isLocalRpc(url: string): boolean {
+	try {
+		const h = new URL(url).hostname;
+		return h === "127.0.0.1" || h === "localhost" || h === "0.0.0.0" || h === "::1";
+	} catch {
+		return false;
+	}
+}
+if (!isLocalRpc(RPC) && process.env.I_UNDERSTAND_LIVE_BROADCAST !== "1") {
+	throw new Error(
+		`refusing to broadcast: RPC ${redactRpc(RPC)} is not a localhost fork but the signer is the public anvil test key. ` +
+			`Point FORK_RPC at a local anvil fork, or set I_UNDERSTAND_LIVE_BROADCAST=1 with a FUNDED signer to go live.`,
+	);
+}
 
 const account = privateKeyToAccount(ANVIL_PK0);
 const localChain = {
@@ -61,7 +81,7 @@ const erc20 = parseAbi([
 const MAX = (2n ** 256n - 1n) as bigint;
 
 async function main() {
-	console.log(`\n[fork] rpc=${RPC} chain=${CHAIN_ID} signer=${account.address}`);
+	console.log(`\n[fork] rpc=${redactRpc(RPC)} chain=${CHAIN_ID} signer=${account.address}`);
 	console.log(`[fork] pool ${pool.poolReference} ${pool.token0.symbol}/${pool.token1.symbol} ${pool.fee / 10000}%`);
 
 	// 1) Get the REAL unsigned mint tx from the Uniswap LP API, for our signer.
