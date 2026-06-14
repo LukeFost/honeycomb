@@ -47,9 +47,23 @@ contract BountyEscrow is IReceiver {
         Expired
     }
 
-    // onReport action discriminator.
-    uint8 internal constant ACTION_RECORD_GRADE = 0;
-    uint8 internal constant ACTION_RESOLVE = 1;
+    // onReport action discriminator. Architecture A: the two TEEs write independently.
+    uint8 internal constant ACTION_RECORD_SCORE = 0; // from the Grader enclave's CRE callback
+    uint8 internal constant ACTION_RECORD_VALIDITY = 1; // from the AI Attestor's CRE callback
+    uint8 internal constant ACTION_RESOLVE = 2; // from the CRON resolver
+    uint8 internal constant ACTION_DELIVER = 3; // from the Grader enclave (post-resolve, winner re-sealed to maker)
+
+    // Per-(jobId, agentId) submission state. The two gates arrive in EITHER order via
+    // separate TEE callbacks; a submission can only lead once BOTH are in and valid.
+    struct Submission {
+        uint16 score; // execution score 0..10000
+        bool hasScore; // grader enclave wrote a (sig-verified) score
+        bool valid; // AI attestor verdict
+        bool hasValidity; // AI attestor wrote a verdict
+        bytes32 scoreDigest; // keccak256(jobId,agentId,score) — the ecrecover'd digest
+        bytes32 validityAtt; // AI attestor response digest (record)
+        string encCid; // the agent's submission, sealed to the grader enclave's key
+    }
 
     struct Job {
         uint256 id;
@@ -63,12 +77,14 @@ contract BountyEscrow is IReceiver {
         bytes32 testsHash; // commitment to PRIVATE tests + rubric
         string specCid; // PUBLIC spec / tests
         address attesterKey; // execution enclave's signer (ecrecover target for scores)
+        bytes32 makerPubKey; // maker's X25519 key — the grader seals the WINNER's code to this
         // --- live leaderboard: best VALID grade so far ---
         uint256 bestAgentId; // ERC-8004 agentId of current leader (0 = none)
         uint16 bestScore; // execution score 0..10000
         bytes32 bestScoreAtt; // execution-enclave attestation digest
         bytes32 bestValidityAtt; // Confidential AI Attester attestation digest
         uint64 gradeCount; // submissions graded
+        string winnerDeliveryCid; // winning code re-sealed to makerPubKey (set on delivery)
     }
 
     address public rewardToken; // default token for new bounties (settable)
@@ -78,6 +94,7 @@ contract BountyEscrow is IReceiver {
 
     uint256 public nextJobId = 1;
     mapping(uint256 => Job) public jobs;
+    mapping(uint256 => mapping(uint256 => Submission)) public submissionOf; // jobId => agentId => state
 
     /// @notice Grace after expiredAt during which only resolve (not claimRefund)
     ///         is allowed — grading runs after the deadline.
@@ -92,15 +109,11 @@ contract BountyEscrow is IReceiver {
         bytes32 testsHash,
         string specCid
     );
-    event GradeRecorded(
-        uint256 indexed jobId,
-        uint256 indexed agentId,
-        uint16 score,
-        bool valid,
-        bytes32 scoreAttestationHash,
-        bytes32 validityAttestationHash,
-        bool newLeader
-    );
+    event Submitted(uint256 indexed jobId, uint256 indexed agentId, string encCid);
+    event ScoreRecorded(uint256 indexed jobId, uint256 indexed agentId, uint16 score, bytes32 scoreDigest);
+    event ValidityRecorded(uint256 indexed jobId, uint256 indexed agentId, bool valid, bytes32 validityAtt);
+    event NewLeader(uint256 indexed jobId, uint256 indexed agentId, uint16 score);
+    event WinnerDelivered(uint256 indexed jobId, uint256 indexed winnerAgentId, string deliveryCid);
     event JobResolved(
         uint256 indexed jobId,
         uint256 indexed winnerAgentId,
@@ -142,10 +155,12 @@ contract BountyEscrow is IReceiver {
         uint64 expiredAt,
         bytes32 testsHash,
         string calldata specCid,
-        address attesterKey
+        address attesterKey,
+        bytes32 makerPubKey
     ) external returns (uint256 jobId) {
         require(budget > 0 && expiredAt > block.timestamp, "bad params");
         require(attesterKey != address(0), "no attester");
+        require(makerPubKey != bytes32(0), "no maker key");
         address token = rewardToken;
         jobId = nextJobId++;
         Job storage j = jobs[jobId];
@@ -159,72 +174,115 @@ contract BountyEscrow is IReceiver {
         j.testsHash = testsHash;
         j.specCid = specCid;
         j.attesterKey = attesterKey;
+        j.makerPubKey = makerPubKey;
         require(IERC20(token).transferFrom(msg.sender, address(this), budget), "fund failed");
         emit JobCreated(jobId, msg.sender, token, budget, expiredAt, testsHash, specCid);
     }
 
-    // --- evaluator (CRE via forwarder): record grades + resolve -------------
+    // --- agent: submit an encrypted entry -----------------------------------
+
+    /// @notice Register a submission CID (sealed to the grader enclave's key). Only the
+    ///         agent's own registered wallet may submit for its agentId. The enclave
+    ///         re-fetches this CID at delivery to re-seal the winner to the maker.
+    function submit(uint256 jobId, uint256 agentId, string calldata encCid) external {
+        Job storage j = jobs[jobId];
+        require(j.client != address(0), "no job");
+        require(j.status == JobStatus.Funded, "not open");
+        require(block.timestamp <= j.expiredAt, "submissions closed");
+        require(msg.sender == identityRegistry.getAgentWallet(agentId), "not agent wallet");
+        submissionOf[jobId][agentId].encCid = encCid;
+        emit Submitted(jobId, agentId, encCid);
+    }
+
+    // --- evaluator (CRE via forwarder): record grades + resolve + deliver ----
 
     /// @inheritdoc IReceiver
     function onReport(bytes calldata, bytes calldata report) external {
         if (msg.sender != forwarder) revert UnauthorizedForwarder(msg.sender);
         (uint8 action, bytes memory data) = abi.decode(report, (uint8, bytes));
 
-        if (action == ACTION_RECORD_GRADE) {
-            (
-                uint256 jobId,
-                uint256 agentId,
-                uint16 score,
-                bool valid,
-                bytes32 validityAtt,
-                uint8 v,
-                bytes32 r,
-                bytes32 s
-            ) = abi.decode(data, (uint256, uint256, uint16, bool, bytes32, uint8, bytes32, bytes32));
-            _recordGrade(jobId, agentId, score, valid, validityAtt, v, r, s);
+        if (action == ACTION_RECORD_SCORE) {
+            (uint256 jobId, uint256 agentId, uint16 score, uint8 v, bytes32 r, bytes32 s) =
+                abi.decode(data, (uint256, uint256, uint16, uint8, bytes32, bytes32));
+            _recordScore(jobId, agentId, score, v, r, s);
+        } else if (action == ACTION_RECORD_VALIDITY) {
+            (uint256 jobId, uint256 agentId, bool valid, bytes32 validityAtt) =
+                abi.decode(data, (uint256, uint256, bool, bytes32));
+            _recordValidity(jobId, agentId, valid, validityAtt);
         } else if (action == ACTION_RESOLVE) {
             uint256 jobId = abi.decode(data, (uint256));
             _resolve(jobId);
+        } else if (action == ACTION_DELIVER) {
+            (uint256 jobId, string memory deliveryCid) = abi.decode(data, (uint256, string));
+            _deliverWinner(jobId, deliveryCid);
         } else {
             revert("bad action");
         }
     }
 
-    function _recordGrade(
-        uint256 jobId,
-        uint256 agentId,
-        uint16 score,
-        bool valid,
-        bytes32 validityAtt,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) internal {
+    /// @dev Grader enclave posts the winning code re-sealed to the maker's key.
+    function _deliverWinner(uint256 jobId, string memory deliveryCid) internal {
         Job storage j = jobs[jobId];
+        require(j.status == JobStatus.Completed, "not completed");
+        j.winnerDeliveryCid = deliveryCid;
+        emit WinnerDelivered(jobId, j.bestAgentId, deliveryCid);
+    }
+
+    /// @dev Open for grading while Funded and within the grace window.
+    function _gradingOpen(Job storage j) internal view {
         require(j.client != address(0), "no job");
         require(j.status == JobStatus.Funded, "not open");
-        // Grading window = contest + SETTLE_GRACE (covers grading latency). Stops
-        // grades being inserted arbitrarily late to snipe a result post-contest.
         require(block.timestamp <= j.expiredAt + SETTLE_GRACE, "grading closed");
+    }
 
-        // FIX #2: the score must be SIGNED by this bounty's execution enclave. The
-        // signed digest binds (jobId, agentId, score) so the score can't be lied
-        // about, replayed onto another job/agent, or forged by a non-enclave caller.
+    // --- Gate 1: the Grader enclave's signed score (ecrecover-verified) ----------
+
+    function _recordScore(uint256 jobId, uint256 agentId, uint16 score, uint8 v, bytes32 r, bytes32 s)
+        internal
+    {
+        Job storage j = jobs[jobId];
+        _gradingOpen(j);
+        // The score must be SIGNED by this bounty's execution enclave. The signed digest
+        // binds (jobId, agentId, score) → can't be lied about, replayed, or forged.
         bytes32 scoreDigest = keccak256(abi.encode(jobId, agentId, uint256(score)));
         require(ecrecover(scoreDigest, v, r, s) == j.attesterKey, "bad enclave score sig");
 
-        j.gradeCount += 1;
+        Submission storage sub = submissionOf[jobId][agentId];
+        sub.score = score;
+        sub.hasScore = true;
+        sub.scoreDigest = scoreDigest;
+        emit ScoreRecorded(jobId, agentId, score, scoreDigest);
+        _maybePromote(jobId, agentId);
+    }
 
-        // effective = valid ? score : 0  → only valid grades can take the lead.
-        // (validity is the AI attestor's domain; the enclave signs only the score.)
-        bool newLeader = valid && agentId != 0 && (j.bestAgentId == 0 || score > j.bestScore);
-        if (newLeader) {
+    // --- Gate 2: the AI Attestor's validity verdict (delivered via its CRE callback) -
+
+    function _recordValidity(uint256 jobId, uint256 agentId, bool valid, bytes32 validityAtt) internal {
+        Job storage j = jobs[jobId];
+        _gradingOpen(j);
+        Submission storage sub = submissionOf[jobId][agentId];
+        sub.valid = valid;
+        sub.hasValidity = true;
+        sub.validityAtt = validityAtt;
+        emit ValidityRecorded(jobId, agentId, valid, validityAtt);
+        _maybePromote(jobId, agentId);
+    }
+
+    // --- Combine: a submission leads only with BOTH gates in and valid -----------
+
+    function _maybePromote(uint256 jobId, uint256 agentId) internal {
+        if (agentId == 0) return;
+        Submission storage sub = submissionOf[jobId][agentId];
+        // effective = valid ? score : 0 ; needs an enclave-signed score AND a valid verdict.
+        if (!(sub.hasScore && sub.hasValidity && sub.valid)) return;
+        Job storage j = jobs[jobId];
+        if (j.bestAgentId == 0 || sub.score > j.bestScore) {
             j.bestAgentId = agentId;
-            j.bestScore = score;
-            j.bestScoreAtt = scoreDigest;
-            j.bestValidityAtt = validityAtt;
+            j.bestScore = sub.score;
+            j.bestScoreAtt = sub.scoreDigest;
+            j.bestValidityAtt = sub.validityAtt;
+            emit NewLeader(jobId, agentId, sub.score);
         }
-        emit GradeRecorded(jobId, agentId, score, valid, scoreDigest, validityAtt, newLeader);
     }
 
     function _resolve(uint256 jobId) internal {
@@ -273,6 +331,11 @@ contract BountyEscrow is IReceiver {
 
     function winnerWalletOf(uint256 jobId) external view returns (address) {
         return jobs[jobId].provider;
+    }
+
+    /// @notice The winning code, re-sealed to the maker's key (maker decrypts with their secret).
+    function winnerDeliveryCidOf(uint256 jobId) external view returns (string memory) {
+        return jobs[jobId].winnerDeliveryCid;
     }
 
     function isSettled(uint256 jobId) external view returns (bool) {

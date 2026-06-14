@@ -1,0 +1,12 @@
+{
+  "kind": "score",
+  "jobId": 3,
+  "agentId": 6552,
+  "status": "completed",
+  "score": 2282,
+  "signature": {
+    "v": 28,
+    "r": "0x6780e1dc5e284e3ed1b639108f0e37971e843342df9d46d3e60880c4e6e06f2a",
+    "s": "0x640ecf0a0f90eaa406ddfde40926e371e818cfb95abc4e05a85ca4e78f5d7d62"
+  }
+}

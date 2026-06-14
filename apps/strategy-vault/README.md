@@ -31,12 +31,14 @@ forge test  →  7 passed; 0 failed
 ## Layout
 
 ```
-contracts/StrategyVault.sol          the CRE receiver (ERC-165) + scoped policy (authority layer)
-test/StrategyVaultForkSwap.t.sol     mainnet-fork proof (forwarder simulated via vm.prank)
-test/DecodeWorkflowPayload.t.sol     proves the workflow's viem payload decodes in the vault
-script/RealSwap.s.sol                gated real-money smoke test (does NOT run by default)
-strategy-workflow/main.ts            the CRE workflow: CRON -> Action -> report -> writeReport
-strategy-workflow/{workflow,config,…}  CRE targets + config (project.yaml is at the app root)
+contracts/StrategyVault.sol          per-user vault: CRE receiver (ERC-165) + scoped policy
+contracts/StrategyRegistry.sol       multi-user directory: users register their own vault + strategy
+strategy-workflow/main.ts            CRE workflow: read registry -> fan out (quote->report) per vault
+strategy-workflow/{config,workflow,secrets}  CRE config / targets / secret (project.yaml at app root)
+script/DeployBase.s.sol              deploy a vault to Base (real broadcast)
+script/DeployRegistry.s.sol          deploy registry + register vaults (real broadcast)
+run-loop.sh                          centralized loop runner (automatic until DON deploy)
+test/*.t.sol                         vault fork swaps (mainnet/Base) + registry + decode (16 pass)
 DESIGN.md                            full design: matrix, architecture, Uniswap + CRE integration
 ```
 
@@ -50,6 +52,23 @@ router, then verifies the result by **balance deltas**: `tokenIn spent <= amount
 `tokenOut received >= minOut`. That post-condition makes the vault agnostic to the router's calldata
 format and immune to a lying Trading API (output redirection → `received` short → revert; input
 substitution → `spent > amountIn` → revert), so we never trust the API's opaque bytes.
+
+## Multi-user (StrategyRegistry)
+
+One workflow serves many users. Each user deploys their own `StrategyVault` and **self-registers** it
+in `StrategyRegistry` with their per-vault strategy params (token pair, fee, amount, slippage) — gated
+on `IOwned(vault).owner() == msg.sender`, so you can only register a vault you control. A user can
+**pause** their strategy (`setActive(vault, false)` — keeps the config) or **remove** it
+(`remove(vault)` — frees the row), both gated on the original registrant. Each tick the
+workflow does **one** `listActive()` read and **fans out**: per registered vault it pulls a live quote,
+builds the Action, and `writeReport`s to that vault — each in a try/catch so one failing vault never
+blocks the others. Every user's funds stay isolated in their own policy-bounded vault.
+
+**Live on Base:** registry `0xEe7162006cDbF88A07D18B21aD66285da4c7EFa2`, 2 vaults registered; simulate
+logs `2 active vault(s)` and serves both with live quotes. Scale: ~1 HTTP + 1 write per vault/tick →
+bounded by CRE per-run quotas; `maxVaults` caps the fan-out (shard across runs/workflows beyond it).
+The registry is read at `LATEST` block (not finalized — Base finality lags ~minutes, which would hide
+fresh registrations).
 
 ## Run the fork test
 
@@ -89,6 +108,26 @@ summary. The on-chain write shows a "capability not found" / no-`txHash` note �
 > min-out as the on-chain floor but execute our proven single-hop V3 path. Following the API's exact
 > multi-hop route is a later enhancement.
 
+## Automatic (loop) mode — runs today; DON-autonomous is gated
+
+Fully-decentralized autonomy = `cre workflow deploy` so the **DON** fires the CRON itself. That needs
+Chainlink **org deployment access** (`cre account access`), which is currently *not enabled* — a
+Chainlink-side gate, not a code gap (the CRON trigger + deploy path are already wired).
+
+Until then the box runs **automatically via a centralized runner**: loop `cre workflow simulate
+--broadcast` on a schedule. Each tick is a full, independent run (fresh live quote → report →
+forwarder → `onReport` → real swap). See **`run-loop.sh`**:
+
+```bash
+INTERVAL=300 ./run-loop.sh     # one real tick every 5 min (Ctrl-C to stop)
+```
+
+**Trust trade-off (honest):** the on-chain swap + vault policy stay real and bounded; only the
+*trigger and report signing* run on your box with your key instead of a decentralized DON. The DON
+version lights up the moment access lands (then also `setExpectedWorkflowId`). ⚠ Each tick is a real
+swap spending real funds — pair this with the A1 strategy (so ticks *decide*, often doing nothing)
+before running it unattended.
+
 ## Finding: the approval model (resolves a DESIGN.md open question)
 
 The Universal Router **always pulls ERC20 input via Permit2**. So a *contract* vault must, one-time:
@@ -96,29 +135,18 @@ The Universal Router **always pulls ERC20 input via Permit2**. So a *contract* v
 `StrategyVault.setupAllowance`). The Trading API's `x-permit2-disabled: true` only means "don't expect
 an EIP-712 Permit2 *signature*" (a contract can't sign one) — it does **not** bypass Permit2 on-chain.
 
-## Real-money script (DOES NOT RUN BY DEFAULT)
-
-`script/RealSwap.s.sol` deploys the vault, funds it with a small USDC amount, and drives one real swap
-via `onReport`, with the forwarder slot set to the caller EOA as a KeystoneForwarder stand-in — i.e.
-it exercises the **exact production contract path** with real funds.
-
-Safety: the repo-root `REAL_MONEY_PKEY` is intentionally corrupted (invalid hex) so `vm.envUint`
-reverts before anything broadcasts. To actually run it, create a local `.env` here (gitignored; see
-`.env.example`) with a valid key + `MAINNET_RPC_URL`, fund the address with ≥ `AMOUNT_IN` USDC + gas,
-then:
-
-```bash
-forge script script/RealSwap.s.sol --rpc-url $MAINNET_RPC_URL --broadcast
-```
-
 ## Proven vs. next
+
+**✅ LIVE ON BASE MAINNET.** Real end-to-end ran on-chain: CRE workflow → live Uniswap quote → report
+→ KeystoneForwarder `0x5E342a…CCE548` → `StrategyVault` `0xaeb453fF…23b64a` → **real V3 swap, 1 USDC →
+0.000593575 WETH** ([tx](https://basescan.org/tx/0x3156936711b00b8189057bd14bed93a88e95bd1ab05bad7d1bc26f07b6cc02ec)).
 
 | Proven here | Next |
 |---|---|
-| Forwarder→`onReport`→Universal Router swap on a fork (9 tests green) | Live `writeReport` → REAL forwarder → deployed vault (needs DON registration + `--broadcast`) |
-| ERC-165 receiver + policy guards (forwarder, minOut, router, token, nonce, expiry) | A real strategy driving the decision (A1 interpreter, then A4 ML policy) |
-| **Live Uniswap `/quote` + DON median-consensus on min-out** in `simulate` (real API, CRE secret) | Follow the API's actual route (multi-hop) instead of the pinned single-hop V3 |
-| CRE workflow + viem→Solidity `Action` cross-checked by a decode test | One chain with Uniswap liquidity + CRE write-capability + forwarder, for true end-to-end |
+| **Real on-chain end-to-end on Base** (forwarder → onReport → Uniswap V3 swap) via `simulate --broadcast` | **DON-autonomous** (`cre workflow deploy`) — gated on Chainlink org access (`cre account access`) |
+| Live Uniswap `/quote` + median-consensus on min-out (real API, CRE secret) | A real strategy driving the decision (A1 interpreter, then A4 ML policy) |
+| ERC-165 receiver + policy guards (forwarder, minOut, router, token, nonce, expiry, settable forwarder) | `setExpectedWorkflowId` to bind the vault to the registered workflow (after deploy) |
+| Automatic via centralized loop (`run-loop.sh`) today | Follow the API's actual route (multi-hop) instead of the pinned single-hop V3 |
 
 ### `Action` ABI tuple (for the CRE TS workflow's `encodeAbiParameters`)
 
