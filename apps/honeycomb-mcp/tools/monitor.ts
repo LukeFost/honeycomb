@@ -130,7 +130,14 @@ export async function jobEvents(args: { jobId?: string; eventName?: string; from
 
 	const events = logs.map((l) => {
 		const a = (l as unknown as { args: Record<string, unknown> }).args ?? {};
-		const out: Record<string, unknown> = { block: Number(l.blockNumber), tx: l.transactionHash };
+		// logIndex makes (tx, logIndex) a true unique key — two escrow events in ONE tx
+		// (e.g. ScoreRecorded + NewLeader) would otherwise both persist as logIndex 0 and
+		// collide on the events PK, silently dropping one. Surface it for the DB layer.
+		const out: Record<string, unknown> = {
+			block: Number(l.blockNumber),
+			tx: l.transactionHash,
+			logIndex: Number((l as { logIndex?: number }).logIndex ?? 0),
+		};
 		for (const [k, v] of Object.entries(a)) out[k] = typeof v === "bigint" ? v.toString() : v;
 		return out;
 	});

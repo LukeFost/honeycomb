@@ -21,11 +21,35 @@
 // downgrades to "graded but not recorded" and reports a false green.
 // ============================================================================
 
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { readContract } from "viem/actions";
+import {
+	ESCROW,
+	ESCROW_ABI,
+	IDENTITY_REGISTRY,
+	IDENTITY_ABI,
+	publicClient,
+	walletFromKey,
+} from "../chain.ts";
+import { putContent, SUBMISSIONS_BUCKET } from "../storage/gcs.ts";
+import { sealToPub } from "../storage/seal.ts";
 import { gradeSubmission } from "./grade.ts";
 import { getJob } from "./monitor.ts";
+
+// grading-cre root, for resolving a relative submissionPath (mirrors grade.ts).
+const GRADING_CRE_ROOT = join(import.meta.dir, "..", "..", "grading-cre");
+
+// The agent's OWN key, which the escrow's submit() requires as msg.sender. Distinct
+// from the maker/relayer SEP_PRIVATE_KEY that drives createBounty and the CRE relay.
+// Falls back to SEP_PRIVATE_KEY for the common single-key dev setup.
+const SUBMIT_KEY = process.env.SUBMIT_PRIVATE_KEY ?? process.env.SEP_PRIVATE_KEY;
+
+// The placeholder enclaveEncPub (chain.ts default until a real key is summoned).
+// Sealing to it produces a blob nobody can open, so we refuse rather than upload
+// an unopenable submission.
+const PLACEHOLDER_ENCPUB = `0x${"22".repeat(32)}`;
 
 // Where the CRE grading-workflow lives (apps/grading-cre). `cre workflow simulate`
 // must run from this dir so it resolves grading-workflow + its target settings.
@@ -86,6 +110,19 @@ export async function submitWork(args: {
 		);
 	}
 
+	// 1.5 Seal + register the submission CID on-chain (Leg 1 of encrypted delivery).
+	//     The plaintext .py is sealed to the job's enclaveEncPub, uploaded to the
+	//     submissions bucket, and its gcs:// URI is written to submissionOf[jobId]
+	//     [agentId] via submit(jobId, agentId, encCid). The grading enclave re-fetches
+	//     this CID at delivery to re-seal the winner to the maker. This is what makes
+	//     encCid (previously never populated) point at real, openable content.
+	const { encCid, submitTx } = await sealAndRegister({
+		jobId: args.jobId,
+		agentId,
+		submissionPath: args.submissionPath,
+		enclaveEncPub: job.enclaveEncPub,
+	});
+
 	// 2. Grade through the real grader. On the enclave path this also returns the
 	//    KMS-HSM signature the escrow ecrecovers; on the local path it does not.
 	const grade = await gradeSubmission({
@@ -144,6 +181,11 @@ export async function submitWork(args: {
 		score,
 		valid,
 		isLeader,
+		// Leg 1 of encrypted delivery: the sealed submission's content-addressed URI,
+		// now registered on-chain (submissionOf[jobId][agentId].encCid). Resolvable
+		// only by the grading enclave that holds the matching secret.
+		encCid,
+		submitTx,
 		// Plain-English one-liner the solver actually reads.
 		summary: plainSummary({ score, valid, isLeader, bestScore: after.bestScore }),
 		scoreTx,
@@ -155,6 +197,69 @@ export async function submitWork(args: {
 		scoreSignature: signature,
 		attestationSource: (grade as { attestationSource?: string }).attestationSource ?? "local",
 	};
+}
+
+// --- seal + register submission CID (Leg 1) ---------------------------------
+// Read the plaintext submission, seal it to the job's enclaveEncPub, upload the
+// ciphertext to the submissions bucket, then register the resulting gcs:// URI
+// on-chain via submit(jobId, agentId, encCid). The escrow requires msg.sender ==
+// the agent's registered wallet, so we sign with SUBMIT_KEY and pre-check the
+// registry to fail loud on a mismatch rather than burn gas on a sure revert.
+async function sealAndRegister(p: {
+	jobId: string;
+	agentId: string;
+	submissionPath: string;
+	enclaveEncPub: string;
+}): Promise<{ encCid: string; submitTx: string }> {
+	// Resolve + read the submission (relative paths resolve under apps/grading-cre).
+	const subPath = isAbsolute(p.submissionPath)
+		? p.submissionPath
+		: resolve(GRADING_CRE_ROOT, p.submissionPath);
+	if (!existsSync(subPath)) throw new Error(`submission file not found: ${subPath}`);
+	const plaintext = readFileSync(subPath, "utf8");
+
+	// Refuse to seal to the placeholder enclave key — the blob would be unopenable.
+	if (p.enclaveEncPub.toLowerCase() === PLACEHOLDER_ENCPUB) {
+		throw new Error(
+			`bounty #${p.jobId} has the placeholder enclaveEncPub (0x2222…) — no enclave holds the matching secret, so a sealed submission could never be opened. The maker must open the bounty with a real enclaveEncPub (summon a grading enclave key) before submissions can be sealed.`,
+		);
+	}
+
+	// The submit() tx must come from the agent's OWN registered wallet.
+	if (!SUBMIT_KEY) {
+		throw new Error(
+			"cannot register the submission on-chain: set SUBMIT_PRIVATE_KEY (or SEP_PRIVATE_KEY) to the agent's registered wallet key — the escrow's submit() requires msg.sender == getAgentWallet(agentId).",
+		);
+	}
+	const { account, wallet } = walletFromKey(SUBMIT_KEY, "SUBMIT_PRIVATE_KEY");
+
+	// Pre-check the registry: if the signer isn't the agent's wallet, submit() will
+	// revert "not agent wallet". Surface that BEFORE broadcasting.
+	const registered = (await readContract(publicClient, {
+		address: IDENTITY_REGISTRY,
+		abi: IDENTITY_ABI,
+		functionName: "getAgentWallet",
+		args: [BigInt(p.agentId)],
+	})) as `0x${string}`;
+	if (registered.toLowerCase() !== account.address.toLowerCase()) {
+		throw new Error(
+			`SUBMIT_PRIVATE_KEY wallet ${account.address} is not the registered wallet for agentId ${p.agentId} (registry has ${registered}). The escrow's submit() would revert "not agent wallet". Use the agent's own key.`,
+		);
+	}
+
+	// Leg 1: seal to enclaveEncPub, upload, register.
+	const sealed = await sealToPub(plaintext, p.enclaveEncPub);
+	const encCid = await putContent(SUBMISSIONS_BUCKET, sealed, "application/octet-stream");
+
+	const submitTx = await wallet.writeContract({
+		address: ESCROW,
+		abi: ESCROW_ABI,
+		functionName: "submit",
+		args: [BigInt(p.jobId), BigInt(p.agentId), encCid],
+	});
+	await publicClient.waitForTransactionReceipt({ hash: submitTx });
+
+	return { encCid, submitTx };
 }
 
 // --- plain-English summary --------------------------------------------------

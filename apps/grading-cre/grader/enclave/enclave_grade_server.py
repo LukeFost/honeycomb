@@ -15,8 +15,12 @@
 #      scoreDigest, r/s/v, signer) -- the exact shape enclave_grade.grade() already returns
 #      and that BountyEscrow._recordScore ecrecovers. We reuse grade() verbatim.
 #
-# Contract:
-#   POST /grade  {code: str, jobId: int|str, agentId: int|str}   (code = the submission .py text)
+# Contract (two ways to deliver the submission source):
+#   POST /grade  {code: str, jobId, agentId}            -- inline plaintext (back-compat)
+#   POST /grade  {encCid: "gcs://...", jobId, agentId}  -- SEALED submission: the enclave
+#                fetches the ciphertext from the submissions bucket and opens it with its
+#                X25519 secret (ENCLAVE_ENC_SECRET) before grading. This is the private path:
+#                the plaintext never leaves the enclave. Exactly one of code/encCid is required.
 #                -> 200 {jobId, agentId, score, scoreDigest, signature:{r,s,v}, signer}
 #                -> 400 bad request   -> 500 grade/transport failure   -> 502 signing failure
 #   GET  /health -> 200 {ok, kmsSigner, privateSeries}
@@ -92,9 +96,15 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b""
         try:
             req = json.loads(raw or b"{}")
-            code = req["code"]
-            if not isinstance(code, str) or not code.strip():
+            code = req.get("code")
+            enc_cid = req.get("encCid")
+            # Exactly one source. encCid is the sealed/private path; code is inline plaintext.
+            if (code is None) == (enc_cid is None):
+                raise ValueError("provide exactly one of 'code' (inline source) or 'encCid' (sealed)")
+            if code is not None and (not isinstance(code, str) or not code.strip()):
                 raise ValueError("'code' must be a non-empty string (the submission .py source)")
+            if enc_cid is not None and (not isinstance(enc_cid, str) or not enc_cid.strip()):
+                raise ValueError("'encCid' must be a non-empty gcs:// URI")
             # jobId/agentId are stamped into the SIGNED digest, so they must be valid ints.
             # Default to the same demo values the single-shot CMD uses if omitted.
             job_id = int(req.get("jobId", 1))
@@ -102,6 +112,18 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError) as e:
             self._json(400, {"error": "bad request: " + repr(e)})
             return
+
+        # Sealed path: fetch the ciphertext from GCS and open it with the enclave secret.
+        # The plaintext lives only in this process. A transport/content-address/decrypt
+        # failure raises here -> mapped to 500 below (we never grade tampered content).
+        if enc_cid is not None:
+            try:
+                import enc_fetch  # lazy: inline path needs neither GCS nor PyNaCl
+
+                code = enc_fetch.fetch_and_open(enc_cid)
+            except Exception as e:  # noqa: BLE001 -- a failed open must abort the grade, loudly
+                self._json(500, {"error": "encCid fetch/open failed: " + repr(e)})
+                return
 
         # scorer.score() takes a FILE PATH (the worker child opens it), so materialize the
         # submission to a temp .py for this one grade and remove it after. The grade is fully
@@ -141,7 +163,7 @@ def main() -> int:
     print(
         f"[enclave_grade_server] warm grading daemon listening on {HOST}:{PORT} "
         f"(signer={signer}, series={os.environ.get('PRIVATE_SERIES', '(default)')}). "
-        f"POST /grade {{code, jobId, agentId}}.",
+        f"POST /grade {{code|encCid, jobId, agentId}}.",
         file=sys.stderr, flush=True,
     )
     try:

@@ -36,6 +36,9 @@ importers:
       '@honeycomb/chain':
         specifier: workspace:*
         version: link:../../packages/chain
+      google-auth-library:
+        specifier: ^10.7.0
+        version: 10.7.0
       viem:
         specifier: ^2.52.2
         version: 2.52.2(typescript@5.9.3)(zod@4.4.3)

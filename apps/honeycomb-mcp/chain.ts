@@ -140,6 +140,24 @@ export const ESCROW_ABI = [
 		outputs: [JOB_TUPLE],
 	},
 	{
+		// Agent: register a submission CID (the sealed-box ciphertext, sealed to the
+		// job's enclaveEncPub). The escrow stores it on submissionOf[jobId][agentId];
+		// the grading enclave re-fetches this CID at delivery to re-seal the winner.
+		// ACCESS: the contract requires msg.sender == identityRegistry.getAgentWallet(
+		// agentId), so this MUST be broadcast by the agent's OWN registered wallet —
+		// submitWork signs it with SUBMIT_PRIVATE_KEY (see submitWork.ts). Overloads
+		// the ERC-8183 submit(uint256,bytes32,bytes); distinct 3-arg selector.
+		type: "function",
+		name: "submit",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "jobId", type: "uint256" },
+			{ name: "agentId", type: "uint256" },
+			{ name: "encCid", type: "string" },
+		],
+		outputs: [],
+	},
+	{
 		// Maker-driven EARLY close (resolveEarly, the "close quick" path on the mainnet
 		// redeploy 0x90058162). Settles the contest BEFORE its deadline to the current
 		// best VALID leader (or refunds the maker if none). msg.sender must == the job
@@ -232,6 +250,20 @@ export const ESCROW_ABI = [
 	},
 ] as const;
 
+// ERC-8004 Identity Registry (read-only here). submit() ecrecovers msg.sender
+// against getAgentWallet(agentId), so submitWork reads this to fail loud on a
+// registry mismatch BEFORE broadcasting a sure-to-revert submit. Called against
+// IDENTITY_REGISTRY, not ESCROW.
+export const IDENTITY_ABI = [
+	{
+		type: "function",
+		name: "getAgentWallet",
+		stateMutability: "view",
+		inputs: [{ name: "agentId", type: "uint256" }],
+		outputs: [{ name: "", type: "address" }],
+	},
+] as const;
+
 export const ERC20_ABI = [
 	{
 		type: "function",
@@ -275,6 +307,19 @@ export const publicClient = createPublicClient({ chain: CHAIN, transport: http(R
 export function walletFromEnv() {
 	const pk = process.env.SEP_PRIVATE_KEY;
 	if (!pk) throw new Error("SEP_PRIVATE_KEY not set (required for on-chain writes)");
+	const account = privateKeyToAccount((pk.startsWith("0x") ? pk : `0x${pk}`) as Hex);
+	const wallet = createWalletClient({ account, chain: CHAIN, transport: http(RPC) });
+	return { account, wallet };
+}
+
+/**
+ * Wallet client built from a specific raw private key (0x-optional). Used by the
+ * submit() leg, which the escrow requires to be signed by the AGENT's own
+ * registered wallet — a different key than the maker/relayer SEP_PRIVATE_KEY.
+ * Throws on a missing/blank key so the caller fails loud rather than reverting.
+ */
+export function walletFromKey(pk: string | undefined, label = "private key") {
+	if (!pk || !pk.trim()) throw new Error(`${label} not set (required for this on-chain write)`);
 	const account = privateKeyToAccount((pk.startsWith("0x") ? pk : `0x${pk}`) as Hex);
 	const wallet = createWalletClient({ account, chain: CHAIN, transport: http(RPC) });
 	return { account, wallet };

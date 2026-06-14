@@ -8,7 +8,9 @@
 // (apps/honeycomb-mcp/tools/*) and the secrets. This plugin ships only
 // @modelcontextprotocol/sdk and zod, so it installs anywhere Claude Code runs.
 //
-//   create_bounty     POST /bounties     [write token]
+//   create_bounty        POST /bounties           [write token]
+//   create_bounty_draft  POST /bounties/draft      [write token]  (x402 step 1)
+//   finalize_bounty      POST /bounties/finalize   [write token]  (x402 step 2)
 //   resolve_early     POST /bounties/:id/resolve-early  [write token]
 //   get_job           GET  /jobs/:id
 //   list_jobs         GET  /jobs?limit=
@@ -152,6 +154,77 @@ server.registerTool(
 		},
 	},
 	async (args) => ok(await post("/bounties", args)),
+);
+
+// --- create_bounty_draft ----------------------------------------------------
+// Gasless funding step 1: the funder funds their OWN bounty without holding ETH.
+// Computes the bounty commitment WITHOUT broadcasting and returns an x402
+// 402-challenge (PaymentRequirements + the EIP-712 typed-data to sign).
+server.registerTool(
+	"create_bounty_draft",
+	{
+		title: "Draft a bounty for gasless funding (x402)",
+		description:
+			"Step 1 of gasless ('x402') bounty funding: the FUNDER pays for their own bounty without holding ETH for gas. Computes the bounty commitment (testsHash / budget / deadline / specCid) WITHOUT broadcasting and WITHOUT spending the server's USDC, then returns an x402 402-challenge: a draftId, the PaymentRequirements, and the EIP-712 typed-data to sign (an EIP-3009 TransferWithAuthorization). The funder signs `typedData` off-chain (setting message.from to their own wallet), then calls finalize_bounty with {draftId, signature, authorization}. Takes the same bounty-shaping args as create_bounty. Drafts expire in ~15 min.",
+		inputSchema: {
+			rewardUSDC: z.number().positive().optional().describe("Reward in human USDC (6dp token). Default 50."),
+			hoursToDeadline: z.number().positive().optional().describe("Hours from now to the contest deadline. Default 1."),
+			bountyDir: z
+				.string()
+				.optional()
+				.describe(
+					"Bounty dir holding private/ files. Relative paths resolve under apps/grading-cre. Default maker/bounties/uniswap-lp-trading-bot.",
+				),
+			specCid: z.string().optional().describe("Public spec reference (IPFS CID or honeycomb:// URI). Auto-derived if omitted."),
+			privateFiles: z
+				.array(z.string())
+				.optional()
+				.describe(
+					"ADVANCED override of the private bundle file list (relative to bountyDir). Leave unset: the default sorted walk of private/ matches create-bounty.ts's testsHash exactly.",
+				),
+			attesterKey: z
+				.string()
+				.optional()
+				.describe("Execution enclave's score-signer address (7-arg createBounty). Default: the live KMS score-signer."),
+			makerPubKey: z
+				.string()
+				.optional()
+				.describe("Maker's X25519 delivery pubkey as bytes32. Default: MAKER_PUBKEY from env/chain.ts."),
+			enclaveEncPub: z
+				.string()
+				.optional()
+				.describe("Per-bounty enclave's X25519 submission-sealing pubkey as bytes32. Default: ENCLAVE_ENCPUB from env/chain.ts."),
+		},
+	},
+	async (args) => ok(await post("/bounties/draft", args)),
+);
+
+// --- finalize_bounty --------------------------------------------------------
+// Gasless funding step 2: settle the funder's signed authorization (relayer pays
+// gas, USDC -> custodial wallet) then broadcast createBounty with the draft's
+// exact params.
+server.registerTool(
+	"finalize_bounty",
+	{
+		title: "Finalize a gasless-funded bounty (x402)",
+		description:
+			"Step 2 of gasless ('x402') bounty funding. Hand back the draftId from create_bounty_draft plus the funder's signature and the authorization they signed. Settles the EIP-3009 payment through the facilitator (the relayer broadcasts the transfer and pays gas, moving the funder's USDC into the server's custodial wallet), THEN broadcasts createBounty on-chain with the draft's exact params. Returns the real jobId plus the settlement tx. BROADCASTS real transactions; fails loudly (no silent success) if the payment is invalid or the on-chain open fails.",
+		inputSchema: {
+			draftId: z.string().describe("The draftId returned by create_bounty_draft."),
+			signature: z.string().describe("The funder's EIP-712 signature over the draft's TransferWithAuthorization typed-data (0x-hex)."),
+			authorization: z
+				.object({
+					from: z.string().describe("The funder's wallet address (the signer)."),
+					to: z.string().describe("payTo — the custodial wallet from the draft. Echo verbatim."),
+					value: z.string().describe("Amount in 6-decimal base units. Echo verbatim from the draft."),
+					validAfter: z.string().describe("Unix seconds the auth becomes valid. Echo verbatim."),
+					validBefore: z.string().describe("Unix seconds the auth expires. Echo verbatim."),
+					nonce: z.string().describe("The bytes32 replay nonce from the draft. Echo verbatim."),
+				})
+				.describe("The signed EIP-3009 authorization. `from` is the funder; every other field is the draft's authorizationTemplate verbatim."),
+		},
+	},
+	async (args) => ok(await post("/bounties/finalize", args)),
 );
 
 // --- resolve_early ----------------------------------------------------------

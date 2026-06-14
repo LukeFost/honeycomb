@@ -14,16 +14,20 @@ FROM python:3.12-slim-bookworm
 
 # google-cloud-kms: in-enclave signing via the VM's attested service account.
 # eth-keys / eth-hash: secp256k1 pubkey -> ETH address, ecrecover recovery id, keccak digest.
+# pynacl: X25519 sealed-box OPEN for the private encCid path (enc_fetch.open_sealed).
+# google-auth: GCS access token (attested SA via metadata server) for enc_fetch.fetch.
 RUN pip install --no-cache-dir \
     google-cloud-kms==2.* \
     eth-keys==0.5.* \
-    "eth-hash[pycryptodome]"
+    "eth-hash[pycryptodome]" \
+    pynacl==1.5.* \
+    google-auth==2.*
 
 WORKDIR /grader
 
 # Trusted grading code + the private series, baked into the image. No submissions/ -- the
 # warm daemon receives the submission source over HTTP, writes it to a temp file, grades, deletes.
-COPY scorer.py worker.py kms_sign.py enclave_grade.py enclave_grade_server.py ./
+COPY scorer.py worker.py kms_sign.py enclave_grade.py enclave_grade_server.py enc_fetch.py ./
 COPY prices_private.json ./prices_private.json
 
 # scorer.py reads the baked series from here, not the maker/ dev path.

@@ -75,15 +75,60 @@ function resolveRpc(): string {
 	return fromKeychain() ?? PUBLIC_FALLBACK;
 }
 
-// Strip the secret before logging an RPC URL anywhere. Drops the query string
-// (Goldsky embeds the key as ?secret=...) and keeps just scheme+host+path.
+// Strip the secret before logging an RPC URL anywhere. Providers embed the key
+// in DIFFERENT places: Goldsky as ?secret=... (query), Alchemy as /v2/<key> and
+// Infura as /ws/v3/<key> (path). So redact BOTH: keep scheme+host and only the
+// short structural path segments (v2, ws, v3, standard, evm, chain ids), and mask
+// any segment that looks like an opaque key. Always drop the query string.
 export function redactRpc(url: string): string {
 	try {
 		const u = new URL(url);
-		return u.search ? `${u.origin}${u.pathname}?<redacted>` : `${u.origin}${u.pathname}`;
+		const segs = u.pathname.split("/").filter(Boolean);
+		const safe = segs.map((s) =>
+			// keep short/structural segments; mask anything long or high-entropy (a key).
+			/^[a-z0-9]{1,8}$/i.test(s) ? s : "<redacted>",
+		);
+		const path = safe.length ? `/${safe.join("/")}` : "";
+		return u.search ? `${u.origin}${path}?<redacted>` : `${u.origin}${path}`;
 	} catch {
 		return "<unparseable-rpc>";
 	}
 }
 
 export const SEPOLIA_RPC = resolveRpc();
+
+// --- WebSocket RPC (eth_subscribe) ------------------------------------------
+// The HTTP RPC above (Goldsky edge) is HTTP-ONLY — it rejects wss:// upgrades, so
+// it cannot serve eth_subscribe. The live event subscriber (db/subscriber.ts)
+// needs a real WS node, kept as a SEPARATE secret so the HTTP path is untouched:
+//
+//   account: honeycomb   service: honeycomb_sepolia_ws
+//   value:   wss://eth-sepolia.g.alchemy.com/v2/<key>   (Alchemy/Infura both work)
+//
+// Resolution: SEPOLIA_WS env -> keychain honeycomb_sepolia_ws -> undefined.
+// Unlike the HTTP RPC there is NO public fallback: a keyless public node won't
+// hold a reliable subscription, and silently degrading a "nothing-missed" watcher
+// to a flaky endpoint would defeat its purpose. The subscriber throws loudly when
+// this is undefined rather than pretend to watch.
+const WS_KEYCHAIN_SERVICE = "honeycomb_sepolia_ws";
+
+function fromKeychainWs(): string | undefined {
+	try {
+		const out = execFileSync(
+			"security",
+			["find-generic-password", "-s", WS_KEYCHAIN_SERVICE, "-w"],
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+		).trim();
+		return out.length > 0 ? out : undefined;
+	} catch (e: any) {
+		const notFound = e?.code === "ENOENT" || e?.status === 44;
+		if (!notFound) {
+			const detail = (e?.stderr?.toString().trim() || e?.message || String(e)).split("\n")[0];
+			console.warn(`[chain] keychain read of ${WS_KEYCHAIN_SERVICE} failed: ${detail}`);
+		}
+		return undefined;
+	}
+}
+
+// undefined when no WS endpoint is configured — callers decide whether that's fatal.
+export const SEPOLIA_WS: string | undefined = envRpc("SEPOLIA_WS") ?? fromKeychainWs();

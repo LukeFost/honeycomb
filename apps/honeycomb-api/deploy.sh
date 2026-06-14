@@ -79,6 +79,20 @@ gcloud builds submit --project="$PROJECT" \
 #      SEPOLIA_RPC            (chain RPC; sepolia.ts reads SEPOLIA_RPC env first)
 #      CRE_API_KEY            (present for completeness; see /submit limitation above)
 #      HONEYCOMB_API_TOKEN    (write-route guard; without it write routes 401)
+#      DATABASE_URL           (Neon; powers all 3 recording streams — telemetry,
+#                              grades, and the co-located chain subscriber)
+#      SEPOLIA_WS             (Alchemy wss node; the chain subscriber's eth_subscribe.
+#                              SEPARATE from SEPOLIA_RPC — Goldsky HTTP can't do WS)
+#
+# ALWAYS-ON for the co-located subscriber: server.ts boots a long-lived
+# eth_subscribe watcher in-process (startSubscriberIfConfigured). Cloud Run would
+# (a) idle the instance to zero between requests and (b) throttle its CPU to ~0
+# when no request is in flight — either freezes the WS loop and drops events. So:
+#   --min-instances=1   keep one instance always warm (never scale to zero)
+#   --no-cpu-throttling  allocate CPU continuously, not just during a request, so
+#                        the background subscriber keeps processing pushed logs.
+# This is the cost of hosting the watcher here (one always-warm instance) — the
+# tradeoff the user accepted by choosing "co-locate in honeycomb-api".
 gcloud run deploy "$SERVICE" \
   --project="$PROJECT" \
   --region="$REGION" \
@@ -87,12 +101,13 @@ gcloud run deploy "$SERVICE" \
   --allow-unauthenticated \
   --port=8080 \
   --cpu=2 --memory=2Gi \
-  --min-instances=0 --max-instances=2 \
+  --min-instances=1 --max-instances=2 \
+  --no-cpu-throttling \
   --timeout=300 \
   --vpc-connector="$VPC_CONNECTOR" \
   --vpc-egress=private-ranges-only \
   --set-env-vars="HOST=0.0.0.0,GRADER_ENCLAVE_URL=${GRADER_ENCLAVE_URL},HONEYCOMB_CRE_TARGET=${HONEYCOMB_CRE_TARGET},HONEYCOMB_GRADER_VENV=/repo/apps/grading-cre/grader/.venv/bin,HONEYCOMB_PYTHON=/repo/apps/grading-cre/grader/.venv/bin/python" \
-  --set-secrets="SEP_PRIVATE_KEY=honeycomb-sep-private-key:latest,INFERENCE_API_KEY_VAR=honeycomb-inference-api-key:latest,SEPOLIA_RPC=honeycomb-sepolia-rpc:latest,CRE_API_KEY=honeycomb-cre-api-key:latest,HONEYCOMB_API_TOKEN=honeycomb-api-token:latest"
+  --set-secrets="SEP_PRIVATE_KEY=honeycomb-sep-private-key:latest,INFERENCE_API_KEY_VAR=honeycomb-inference-api-key:latest,SEPOLIA_RPC=honeycomb-sepolia-rpc:latest,CRE_API_KEY=honeycomb-cre-api-key:latest,HONEYCOMB_API_TOKEN=honeycomb-api-token:latest,DATABASE_URL=honeycomb-database-url:latest,SEPOLIA_WS=honeycomb-sepolia-ws:latest"
 
 echo "[deploy] done. URL:"
 gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" \

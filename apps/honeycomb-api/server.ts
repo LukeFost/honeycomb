@@ -30,13 +30,17 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { createBounty } from "../honeycomb-mcp/tools/createBounty.ts";
+import { createBountyDraft } from "../honeycomb-mcp/tools/createBountyDraft.ts";
+import { finalizeBounty } from "../honeycomb-mcp/tools/finalizeBounty.ts";
 import { resolveEarly } from "../honeycomb-mcp/tools/resolveEarly.ts";
 import { getJob, listJobs, jobEvents } from "../honeycomb-mcp/tools/monitor.ts";
 import { queryReputation } from "../honeycomb-mcp/tools/reputation.ts";
 import { gradeSubmission } from "../honeycomb-mcp/tools/grade.ts";
 import { submitWork } from "../honeycomb-mcp/tools/submitWork.ts";
+import { resolveSpec } from "../honeycomb-mcp/tools/resolveSpec.ts";
 import { runSnapshot } from "../honeycomb-mcp/db/snapshot.ts";
 import { record as recordToolCall } from "../honeycomb-mcp/db/telemetry.ts";
+import { startSubscriberIfConfigured } from "../honeycomb-mcp/db/subscriber.ts";
 
 const PORT = Number(process.env.PORT ?? process.env.HONEYCOMB_API_PORT ?? 8787);
 // Bind loopback by default — the write routes broadcast funded txs and spawn the
@@ -158,6 +162,15 @@ async function route(req: Request): Promise<Response> {
 		);
 	}
 
+	// Resolve a bounty's specCid to its public spec markdown. Read-only and
+	// unauthenticated: the spec is the public side of a bounty (agents need it to
+	// decide whether to compete). ?cid=<specCid> from get_job / list_jobs.
+	if (m === "GET" && pathname === "/spec") {
+		const cid = url.searchParams.get("cid");
+		if (!cid) throw new HttpError("cid query param is required", 400);
+		return json(await resolveSpec({ specCid: cid }));
+	}
+
 	if (m === "GET" && pathname === "/reputation") {
 		const mode = url.searchParams.get("mode") as "counts" | "feedback" | "leaderboard" | null;
 		return json(
@@ -185,6 +198,43 @@ async function route(req: Request): Promise<Response> {
 			}
 		}
 		return json(await createBounty(b));
+	}
+
+	// Gasless funding, step 1: compute the bounty commitment WITHOUT broadcasting
+	// and return an x402 402-challenge for the funder to sign. No USDC spent yet;
+	// still behind the write token because it derives the custodial payTo from
+	// SEP_PRIVATE_KEY and stashes a server-side draft.
+	if (m === "POST" && pathname === "/bounties/draft") {
+		requireWriteAuth(req);
+		const b = await body(req);
+		// Same untrusted-caller guard as /bounties: no absolute-path escape.
+		if (typeof b.bountyDir === "string" && b.bountyDir.startsWith("/")) {
+			throw new HttpError("bountyDir must be a repo-relative path", 400);
+		}
+		for (const k of ["rewardUSDC", "hoursToDeadline"]) {
+			if (k in b && !Number.isFinite(Number(b[k]))) {
+				throw new HttpError(`${k} must be a finite number`, 400);
+			}
+		}
+		return json(await createBountyDraft(b));
+	}
+
+	// Gasless funding, step 2: take the funder's signed EIP-3009 authorization,
+	// settle it through the facilitator (relayer pays gas, USDC -> custodial wallet),
+	// then broadcast createBounty with the draft's exact params.
+	if (m === "POST" && pathname === "/bounties/finalize") {
+		requireWriteAuth(req);
+		const b = await body(req);
+		if (typeof b.draftId !== "string") {
+			throw new HttpError("draftId (string) is required", 400);
+		}
+		if (typeof b.signature !== "string") {
+			throw new HttpError("signature (string) is required", 400);
+		}
+		if (typeof b.authorization !== "object" || b.authorization === null) {
+			throw new HttpError("authorization (object) is required", 400);
+		}
+		return json(await finalizeBounty(b as Parameters<typeof finalizeBounty>[0]));
 	}
 
 	// Maker closes a contest early (resolveEarly). The escrow itself enforces that
@@ -252,8 +302,11 @@ function toolName(method: string, pathname: string): string {
 	if (pathname === "/jobs") return "list_jobs";
 	if (/^\/jobs\/[^/]+$/.test(pathname)) return "get_job";
 	if (pathname === "/events") return "job_events";
+	if (pathname === "/spec") return "resolve_spec";
 	if (pathname === "/reputation") return "query_reputation";
 	if (pathname === "/bounties") return "create_bounty";
+	if (pathname === "/bounties/draft") return "create_bounty_draft";
+	if (pathname === "/bounties/finalize") return "finalize_bounty";
 	if (/^\/bounties\/[^/]+\/resolve-early$/.test(pathname)) return "resolve_early";
 	if (pathname === "/grade") return "grade_submission";
 	if (pathname === "/submit") return "submit_work";
@@ -338,3 +391,10 @@ console.error(
 		? "[honeycomb-api] write routes require HONEYCOMB_API_TOKEN"
 		: "[honeycomb-api] write routes DISABLED (set HONEYCOMB_API_TOKEN to enable)",
 );
+
+// Co-located chain stream: start the live eth_subscribe watcher in THIS process,
+// so the always-on API instance (Cloud Run min-instances=1, CPU-always-on) is the
+// single home for all three recording streams — telemetry + grades (inline) and the
+// chain subscriber (background). No-op unless DATABASE_URL + SEPOLIA_WS are both set,
+// and a subscriber failure never takes the API down (see startSubscriberIfConfigured).
+startSubscriberIfConfigured();
