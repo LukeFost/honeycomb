@@ -20,8 +20,8 @@ RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 # Install ONLY the web package's dependency closure, pinned to the workspace lockfile.
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --filter web... --frozen-lockfile
+# (No BuildKit cache mount: Cloud Build's classic docker builder runs without BuildKit.)
+RUN pnpm install --filter web... --frozen-lockfile
 
 # --- build: compile the Next standalone bundle -----------------------------
 FROM node:22-slim AS build

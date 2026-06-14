@@ -44,8 +44,11 @@ gcloud artifacts repositories describe "$REPO" \
        --project="$PROJECT" --location="$REGION" --repository-format=docker \
        --description="Honeycomb container images"
 
-# 2. Build + push via Cloud Build, using the apps/web Dockerfile against the repo-root context.
-gcloud builds submit --project="$PROJECT" --tag "$IMAGE" --file apps/web/Dockerfile .
+# 2. Build + push via Cloud Build. `builds submit` has no --file flag, so the
+#    Dockerfile path lives in apps/web/cloudbuild.yaml (-f apps/web/Dockerfile).
+gcloud builds submit --project="$PROJECT" \
+  --config apps/web/cloudbuild.yaml \
+  --substitutions="_IMAGE=${IMAGE}" .
 
 # 3. Deploy to Cloud Run.
 gcloud run deploy "$SERVICE" \

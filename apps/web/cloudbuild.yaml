@@ -1,0 +1,20 @@
+# Cloud Build config for the Honeycomb dashboard (apps/web).
+# Builds apps/web/Dockerfile against the repo-root context, then pushes the image.
+# `gcloud builds submit` has no --file flag, so the Dockerfile path is set here via -f.
+#
+#   gcloud builds submit --config apps/web/cloudbuild.yaml \
+#     --substitutions=_IMAGE=us-central1-docker.pkg.dev/PROJECT/honeycomb/web:latest .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - apps/web/Dockerfile
+      - -t
+      - ${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  # Faster builds; the standalone Next build is light enough for the default pool.
+  machineType: E2_HIGHCPU_8
