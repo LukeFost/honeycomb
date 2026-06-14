@@ -68,6 +68,69 @@ Point `HONEYCOMB_API_URL` at `http://localhost:8787` to drive a locally-run
 | `HONEYCOMB_API_URL` | Yes | All tools. Base URL of the hosted `honeycomb-api`, e.g. `http://localhost:8787`. The shim fails loud if unset. |
 | `HONEYCOMB_API_TOKEN` | Write routes only | Sent as `Authorization: Bearer <token>` on every write tool (the ✓ rows above). Without it those return `401`/`503`. Read tools work without it. |
 
+## Verified end-to-end (2026-06-14)
+
+The plugin was driven over the **real MCP stdio protocol** (the same transport Claude Code
+uses: `@modelcontextprotocol/sdk` `Client` + `StdioClientTransport` → handshake →
+`tools/list` → `tools/call`) against the **live hosted** `honeycomb-api`
+(`https://honeycomb-api-tykk6w3mfa-uc.a.run.app`). Every reachable tool returned real data.
+Nothing below is stubbed or mocked.
+
+**`tools/list`** advertised all 13 tools.
+
+**Read tools (no token) — all `isError=false`:**
+
+- `get_skill` → the usage guide markdown.
+- `list_jobs` → 2 real Funded jobs on Sepolia (job #1 reward 50, job #2 reward 5).
+- `get_job 2` → full on-chain state, including `enclaveEncPub = 0x2222…2222` (placeholder).
+- `job_events` → real `JobCreated`/`Submitted`/… logs, Sepolia blocks 11053350–11058350.
+- `query_reputation leaderboard` → 5 real ERC-8004 agents read live from BigQuery.
+- `list_gcs_objects` → 1 real spec blob in the content layer.
+
+**Write gate — proven:** a write tool with **no** token → `HTTP 401 unauthorized`. With the
+deployed bearer token, auth passes and the request reaches real server-side grader logic.
+
+**Real grading (local Stage-1, run on a box that holds the private series):**
+`grade_submission` on `submissions/clean.py` (directional) loaded **2880 minutes** of real
+Uniswap pool data, ran the real `scorer.py`, and made a **real AI validity call**
+(`inferenceId=019ec625-…`, `valid=true` with a model-generated reason). It returned
+`score`, `valid`, and both attestation digests (`scoreAttestation`, `validityAttestation`).
+This is the genuine, non-stubbed path.
+
+### The honest boundary (what an external user hits today)
+
+Two things stop a *cold* external caller from getting a score back through the **hosted**
+API, and both are deliberate, not bugs:
+
+1. **The private market series is not in the hosted image.** The grader *code*, scorer, and
+   sample submissions ship in the container, but the sealed price CSVs are git-ignored and
+   `.dockerignore`'d out (Dockerfile comment: *"drops the host .venv / node_modules / private
+   price series"*). The hosted Cloud Run API is **not trusted** to hold the private data —
+   that data belongs in the TEE. So a `grade_submission` call on the hosted API raises a
+   loud `OSError: resource file … not found` from the scorer instead of fabricating a score.
+2. **`grade_submission` always grades *locally first*, even with the enclave configured.**
+   The deployed service *does* set `GRADER_ENCLAVE_URL=http://10.128.0.14:8000` (the internal
+   VPC IP of the warm Confidential Space VM). But `gradeSubmission()` runs the local grader
+   first — it needs the local AI-validity attestation, which the TEE does not produce — and
+   only *then* supersedes the execution score with the enclave's KMS-signed digest. So the
+   local-data gap in (1) is hit before the enclave is ever called.
+
+   The full sealed flow (`submit_work`, which seals the submission to the job's
+   `enclaveEncPub`, uploads the ciphertext to GCS, and hands the enclave only the `encCid`)
+   is also blocked one step earlier: the live bounties carry the **placeholder**
+   `enclaveEncPub = 0x2222…` (confirmed via `get_job 2` above), which is exactly what the
+   not-yet-integrated *summon* flow would replace with a real per-VM enclave key.
+   `submit_work` correctly **refuses** to seal to an unopenable placeholder rather than
+   produce a submission no one can decrypt.
+
+**Bottom line:** the plugin front door works end-to-end over real MCP today — discovery,
+all read tools against live chain + BigQuery data, and the write-auth gate. The grading
+*code* is fully functional (proven locally with real data + a real inference call). The one
+integration not yet wired is **summon**: minting a per-bounty enclave key (replacing the
+`0x2222…` placeholder) and provisioning the private series into that VM. Until then, the
+hosted `grade_submission`/`submit_work` path correctly fails loud at the data/key boundary
+instead of faking a result.
+
 ## How it works
 
 `plugin.json` declares a single stdio MCP server: `mcp/shim.ts`, run via `bun`. Each
