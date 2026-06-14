@@ -132,3 +132,37 @@ function fromKeychainWs(): string | undefined {
 
 // undefined when no WS endpoint is configured — callers decide whether that's fatal.
 export const SEPOLIA_WS: string | undefined = envRpc("SEPOLIA_WS") ?? fromKeychainWs();
+
+// --- Mainnet WebSocket RPC --------------------------------------------------
+// Same story on mainnet: the Goldsky HTTP edge (honeycomb_mainnet_rpc_http) is
+// HTTP-only, so the live subscriber needs a separate WS node. Stored alongside
+// the HTTP secret:
+//
+//   account: honeycomb   service: honeycomb_mainnet_rpc_wss
+//   value:   wss://eth-mainnet.g.alchemy.com/v2/<key>
+//
+// Resolution: HONEYCOMB_WS env -> keychain honeycomb_mainnet_rpc_wss -> undefined.
+// No public fallback, for the same reason as Sepolia: a flaky keyless socket
+// silently degrades a "nothing-missed" watcher. The subscriber throws loudly
+// when the WS for the active chain is undefined rather than pretend to watch.
+const MAINNET_WS_KEYCHAIN_SERVICE = "honeycomb_mainnet_rpc_wss";
+
+function fromKeychainMainnetWs(): string | undefined {
+	try {
+		const out = execFileSync(
+			"security",
+			["find-generic-password", "-s", MAINNET_WS_KEYCHAIN_SERVICE, "-w"],
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+		).trim();
+		return out.length > 0 ? out : undefined;
+	} catch (e: any) {
+		const notFound = e?.code === "ENOENT" || e?.status === 44;
+		if (!notFound) {
+			const detail = (e?.stderr?.toString().trim() || e?.message || String(e)).split("\n")[0];
+			console.warn(`[chain] keychain read of ${MAINNET_WS_KEYCHAIN_SERVICE} failed: ${detail}`);
+		}
+		return undefined;
+	}
+}
+
+export const MAINNET_WS: string | undefined = envRpc("HONEYCOMB_WS") ?? fromKeychainMainnetWs();

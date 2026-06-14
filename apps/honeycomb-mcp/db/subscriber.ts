@@ -30,9 +30,16 @@
 // ============================================================================
 
 import { createPublicClient, webSocket } from "viem";
-import { sepolia } from "viem/chains";
-import { SEPOLIA_WS, redactRpc } from "@honeycomb/chain/sepolia";
-import { ESCROW, ESCROW_ABI } from "../chain.ts";
+import { mainnet, sepolia } from "viem/chains";
+import { SEPOLIA_WS, MAINNET_WS, redactRpc } from "@honeycomb/chain/sepolia";
+import { ESCROW, ESCROW_ABI, MAINNET } from "../chain.ts";
+
+// Subscribe on the SAME chain the rest of the engine targets (chain.ts MAINNET).
+// ESCROW already flips with that flag; the WS node and viem chain must follow it
+// or we'd point a Sepolia socket at the mainnet escrow (watching forever, seeing
+// nothing). One source of truth: HONEYCOMB_CHAIN=mainnet.
+const WATCH_CHAIN = MAINNET ? mainnet : sepolia;
+const WATCH_WS = MAINNET ? MAINNET_WS : SEPOLIA_WS;
 import { db, applySchema, runSnapshot, upsertOneJob, insertEventRow } from "./snapshot.ts";
 import type { SQL } from "bun";
 
@@ -89,16 +96,17 @@ async function handleLog(sql: SQL, name: string, log: any) {
 // Throws if no WS node is configured — the caller decides whether that's fatal
 // (the CLI exits; the API logs and keeps serving the other two streams).
 export async function startSubscriber(): Promise<{ stop: () => Promise<void> }> {
-	if (!SEPOLIA_WS) {
+	if (!WATCH_WS) {
+		const svc = MAINNET ? "honeycomb_mainnet_rpc_wss (or HONEYCOMB_WS)" : "honeycomb_sepolia_ws (or SEPOLIA_WS)";
 		throw new Error(
-			"no WebSocket RPC configured (set SEPOLIA_WS or keychain honeycomb_sepolia_ws). " +
-				"The default Goldsky HTTP RPC cannot do eth_subscribe — the subscriber needs a real WS node (Alchemy/Infura).",
+			`no WebSocket RPC configured for ${WATCH_CHAIN.name} (set keychain ${svc}). ` +
+				"The default HTTP RPC cannot do eth_subscribe — the subscriber needs a real WS node (Alchemy/Infura).",
 		);
 	}
 
 	const sql = db();
 	await applySchema(sql);
-	console.error(`[subscriber] DB ready; WS = ${redactRpc(SEPOLIA_WS)}`);
+	console.error(`[subscriber] DB ready; chain=${WATCH_CHAIN.name} WS = ${redactRpc(WATCH_WS)}`);
 
 	// Backfill anything mined while we were down. Overlap is harmless (events PK dedups).
 	try {
@@ -109,8 +117,8 @@ export async function startSubscriber(): Promise<{ stop: () => Promise<void> }> 
 	}
 
 	const client = createPublicClient({
-		chain: sepolia,
-		transport: webSocket(SEPOLIA_WS, {
+		chain: WATCH_CHAIN,
+		transport: webSocket(WATCH_WS, {
 			// viem auto-reconnects the socket; keep retrying rather than giving up.
 			reconnect: { attempts: Number.MAX_SAFE_INTEGER, delay: 2_000 },
 			retryCount: 10,
@@ -161,9 +169,10 @@ export async function startSubscriber(): Promise<{ stop: () => Promise<void> }> 
 // process exit — a subscriber failure must not take down the API serving the other
 // two streams; it's surfaced loudly on stderr instead.
 export function startSubscriberIfConfigured(): void {
-	if (!process.env.DATABASE_URL || !SEPOLIA_WS) {
+	if (!process.env.DATABASE_URL || !WATCH_WS) {
+		const wsHint = MAINNET ? "honeycomb_mainnet_rpc_wss" : "SEPOLIA_WS";
 		console.error(
-			"[subscriber] not started (need DATABASE_URL + SEPOLIA_WS); chain stream relies on POST /snapshot until configured",
+			`[subscriber] not started (need DATABASE_URL + ${wsHint}); chain stream relies on POST /snapshot until configured`,
 		);
 		return;
 	}
