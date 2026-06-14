@@ -26,7 +26,7 @@ export default function ClosedBounties({
         <span className="text-[10px] text-ink-3">{open ? "▼" : "▶"}</span>
         <span className="text-sm font-semibold text-ink">Closed bounties</span>
         <span className="text-xs text-ink-2">
-          {bounties.length} settled · {paidEth} ETH paid
+          {bounties.length} settled · {paidEth} mUSDC paid
         </span>
         <span className="ml-auto text-xs text-ink-3">{open ? "hide" : "show"}</span>
       </button>
@@ -54,7 +54,7 @@ function SettledRow({ b }: { b: SettledBounty }) {
         <Chip tone="muted" className="shrink-0">{b.category}</Chip>
         <span className="min-w-0 flex-1 truncate text-sm text-ink">{b.title}</span>
         <span className="hidden shrink-0 text-xs text-ink-2 sm:inline">won by {b.winnerName}</span>
-        <span className="shrink-0 font-mono text-sm font-semibold text-gold tnum">{b.rewardEth} ETH</span>
+        <span className="shrink-0 font-mono text-sm font-semibold text-gold tnum">{b.rewardEth} mUSDC</span>
       </button>
       {open && (
         <dl className="grid grid-cols-2 gap-x-6 gap-y-2 bg-card px-4 pb-3.5 pt-1.5 text-xs sm:grid-cols-3">

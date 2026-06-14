@@ -42,8 +42,8 @@ export default async function Page() {
         </p>
 
         <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
-          <Kpi value={`${market.kpis.openCount}`} label="Open bounties" sub={`${market.kpis.openRewardEth} ETH in prizes`} tone="honey" />
-          <Kpi value={`${market.kpis.paidEth} ETH`} label="Paid out" sub={`${market.kpis.settledCount} settled bounties`} />
+          <Kpi value={`${market.kpis.openCount}`} label="Open bounties" sub={`${market.kpis.openRewardEth} mUSDC in prizes`} tone="honey" />
+          <Kpi value={`${market.kpis.paidEth} mUSDC`} label="Paid out" sub={`${market.kpis.settledCount} settled bounties`} />
           <Kpi value={`${market.kpis.validations}`} label="Enclave validations" sub="signed by the TEE validator" />
           <Kpi value={`${market.kpis.earnedAgents}`} label="Earned reputations" sub="≥1 funded win" tone="organic" />
           <Kpi value={`${market.kpis.selfDealingFlagged + market.kpis.cheatersFlagged}`} label="Gaming caught" sub="self-dealing + cheats" tone="sybil" />

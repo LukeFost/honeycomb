@@ -396,16 +396,36 @@ contract BountyEscrow is IReceiver, IERC8183 {
         }
     }
 
-    /// @dev Resolve a contest: declare the winner as the ERC-8183 provider and
-    ///      Complete the job (or Reject + refund the maker if no valid winner).
-    ///      This is where the 1→many contest collapses into the 1:1 standard job.
+    /// @dev Resolve a contest after its deadline: declare the winner as the ERC-8183
+    ///      provider and Complete the job (or Reject + refund the maker if no valid
+    ///      winner). This is where the 1→many contest collapses into the 1:1 job.
     function _resolve(uint256 jobId) internal {
         JobData storage j = jobs[jobId];
         require(j.client != address(0), "no job");
         require(j.isContest, "not a contest");
         require(j.status == JobStatus.Funded, "not funded");
         require(block.timestamp > j.expiredAt, "not ended"); // TIME-BASED resolution
+        _settle(jobId);
+    }
 
+    /// @notice Maker closes the contest EARLY (before the deadline): settle to the
+    ///         current best VALID leader, or refund the maker if there is none. The
+    ///         maker can only TRIGGER settlement for whoever legitimately leads — it
+    ///         cannot pick the winner — so the anti-cheat property is preserved.
+    function resolveEarly(uint256 jobId) external {
+        JobData storage j = jobs[jobId];
+        require(j.client != address(0), "no job");
+        require(j.isContest, "not a contest");
+        require(msg.sender == j.client, "only maker");
+        require(j.status == JobStatus.Funded, "not funded");
+        _settle(jobId);
+    }
+
+    /// @dev Shared settlement: pay the best valid leader or refund the maker. Always
+    ///      moves the escrow (no funds can get stuck). Used by _resolve (time-gated,
+    ///      CRE-driven) and resolveEarly (maker-driven).
+    function _settle(uint256 jobId) internal {
+        JobData storage j = jobs[jobId];
         uint256 amount = j.budget;
         j.budget = 0;
 

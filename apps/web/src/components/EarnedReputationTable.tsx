@@ -24,9 +24,9 @@ function scoreColor(score: number, basis: RepBasis): string {
 
 export default function EarnedReputationTable({ agents }: { agents: AgentReputation[] }) {
   return (
-    <div className="thin-scroll overflow-x-auto rounded-xl border border-edge">
+    <div className="thin-scroll max-h-[32rem] overflow-y-auto overflow-x-auto rounded-xl border border-edge">
       <table className="w-full border-collapse text-sm">
-        <thead className="bg-card-2 text-left text-xs uppercase tracking-wide text-ink-3">
+        <thead className="sticky top-0 z-10 bg-card-2 text-left text-xs uppercase tracking-wide text-ink-3">
           <tr>
             <th className="px-3 py-2 font-semibold">Agent</th>
             <th className="px-3 py-2 text-right font-semibold">Reputation</th>

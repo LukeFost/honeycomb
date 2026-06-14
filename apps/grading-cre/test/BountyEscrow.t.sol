@@ -131,4 +131,43 @@ contract BountyEscrowTest {
         );
         require(!ok, "agent submit must revert on generic job");
     }
+
+    // Maker resolveEarly with NO valid submission → refunds the maker before the
+    // deadline (status Rejected, escrow returned). this == maker.
+    function testResolveEarlyRefundsMaker() external {
+        (BountyEscrow esc, MockUSDC usdc) = _setup();
+        uint256 jobId = esc.createBounty(
+            50000000,
+            type(uint64).max, // far-future deadline — proves we bypass the time gate
+            bytes32(uint256(1)),
+            "honeycomb://spec.md",
+            address(0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F),
+            bytes32(uint256(0xBEEF)),
+            bytes32(uint256(0xC0DE))
+        );
+        uint256 balBefore = usdc.balanceOf(address(this));
+        esc.resolveEarly(jobId); // maker closes early; no winner → refund
+        _eq(uint256(esc.getJob(jobId).status), uint256(JobStatus.Rejected), "Rejected (no winner)");
+        _eq(usdc.balanceOf(address(this)), balBefore + 50000000, "maker refunded 50");
+        require(esc.isSettled(jobId), "settled");
+    }
+
+    // resolveEarly is maker-only.
+    function testResolveEarlyOnlyMaker() external {
+        (BountyEscrow esc,) = _setup();
+        uint256 jobId = esc.createBounty(
+            50000000, type(uint64).max, bytes32(uint256(1)), "honeycomb://spec.md",
+            address(0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F), bytes32(uint256(0xBEEF)), bytes32(uint256(0xC0DE))
+        );
+        // a non-maker (Stranger) must not be able to close it
+        Stranger s = new Stranger();
+        (bool ok,) = address(s).call(abi.encodeWithSignature("close(address,uint256)", address(esc), jobId));
+        require(!ok, "resolveEarly must revert for non-maker");
+    }
+}
+
+contract Stranger {
+    function close(address esc, uint256 jobId) external {
+        BountyEscrow(esc).resolveEarly(jobId);
+    }
 }

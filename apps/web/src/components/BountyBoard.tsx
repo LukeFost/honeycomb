@@ -28,7 +28,7 @@ export default function BountyBoard({ bounties }: { bounties: Bounty[] }) {
           <div key={b.id} className="flex flex-col rounded-xl border border-edge bg-card-2 p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
               <Chip tone="muted">{CATEGORY_LABEL[b.category] ?? b.category}</Chip>
-              <span className="font-mono text-sm font-semibold text-gold tnum">{b.rewardEth} ETH</span>
+              <span className="font-mono text-sm font-semibold text-gold tnum">{b.rewardEth} mUSDC</span>
             </div>
             <div className="mb-3 text-sm font-medium leading-snug text-ink">{b.title}</div>
             <div className="mt-auto flex items-center justify-between text-[11px] text-ink-2">
