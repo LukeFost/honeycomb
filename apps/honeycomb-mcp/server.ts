@@ -58,6 +58,11 @@ server.registerTool(
 		title: "Create a Honeycomb bounty",
 		description:
 			"Open + fund a bounty (ERC-8183 Job) on BountyEscrow (Sepolia). Hashes every file under the bounty's private/ dir (sorted, raw bytes) into testsHash, approves the USDC reward, calls createBounty, and returns the on-chain jobId. BROADCASTS a real transaction; requires SEP_PRIVATE_KEY.",
+		// The only writing tool: it broadcasts two real Sepolia txs (approve +
+		// createBounty) and spends USDC. Not read-only, not idempotent (each call
+		// opens a NEW job), and it touches the chain (open world). A well-behaved
+		// client uses destructiveHint to confirm before firing.
+		annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
 		inputSchema: {
 			rewardUSDC: z.number().positive().optional().describe("Reward in human USDC (6dp token). Default 50."),
 			hoursToDeadline: z.number().positive().optional().describe("Hours from now to the contest deadline. Default 1."),
@@ -98,6 +103,7 @@ server.registerTool(
 		title: "Get one bounty's full state",
 		description:
 			"Read the full Job struct for one jobId from BountyEscrow (Sepolia): status, reward, deadline, current best valid grade (agentId/score/attestations), grade count, plus isSettled and the winner wallet.",
+		annotations: { readOnlyHint: true, openWorldHint: true },
 		inputSchema: { jobId: z.string().describe("Job id (string; can exceed 2^53).") },
 	},
 	async (args) => ok(await getJob(args)),
@@ -109,6 +115,7 @@ server.registerTool(
 	{
 		title: "List recent bounties",
 		description: "List bounties newest-first (id, status, reward, deadline, best agent/score, grade count, specCid).",
+		annotations: { readOnlyHint: true, openWorldHint: true },
 		inputSchema: { limit: z.number().int().positive().optional().describe("Max jobs, newest first. Default 25.") },
 	},
 	async (args) => ok(await listJobs(args)),
@@ -121,6 +128,7 @@ server.registerTool(
 		title: "Read bounty events",
 		description:
 			"Fetch decoded ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated logs from BountyEscrow over a block range. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
+		annotations: { readOnlyHint: true, openWorldHint: true },
 		inputSchema: {
 			jobId: z.string().optional().describe("Filter to one job id. Omit for all jobs."),
 			eventName: z
@@ -140,6 +148,7 @@ server.registerTool(
 		title: "Query ERC-8004 reputation",
 		description:
 			"Read live ERC-8004 reputation from BigQuery (Ethereum mainnet public logs). counts = total agents registered + feedback events; feedback = recent NewFeedback rows (optionally one agentId); leaderboard = per-agent feedback count + avg score. Needs BigQuery auth (analysis/.secrets/gcp-key.json).",
+		annotations: { readOnlyHint: true, openWorldHint: true },
 		inputSchema: {
 			mode: z.enum(["counts", "feedback", "leaderboard"]).optional().describe("counts | feedback | leaderboard. Default counts."),
 			agentId: z.number().int().optional().describe("feedback mode only: filter to one ERC-8004 agentId."),
@@ -156,6 +165,10 @@ server.registerTool(
 		title: "Grade a submission (real scorer)",
 		description:
 			"Run a candidate submission through the REAL Honeycomb grader and return its grading callback: execution score (0..10000), validity verdict, and both attestation digests. directional -> scorer.py over a price series; lp -> lp_scorer.py (Demeter) over a pool CSV. Needs INFERENCE_API_KEY_VAR; lp needs the grading-cre demeter venv on PATH.",
+		// Settles nothing on-chain (read-only as far as the world's persistent state
+		// goes), but it executes the submission file and calls the inference API, so
+		// openWorld. Not idempotent: the AI validity verdict can vary run to run.
+		annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
 		inputSchema: {
 			submissionPath: z.string().describe("Absolute path to the submission file."),
 			bounty: z.enum(["directional", "lp"]).optional().describe("Scorer to use. Default directional."),
@@ -192,6 +205,8 @@ server.registerTool(
 		title: "Get the Honeycomb usage guide",
 		description:
 			"Return the Honeycomb skill: how to use the other tools (params, common flows, the honest-vs-cheat thesis, gotchas, Sepolia addresses). Call this first if you're unsure how to drive a bounty. Same content as the honeycomb://skill resource.",
+		// Reads a local markdown file; no chain, no network, no mutation.
+		annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 		inputSchema: {},
 	},
 	async () => ({ content: [{ type: "text" as const, text: loadSkill() }] }),
