@@ -44,6 +44,10 @@ gcp-key.json
 # machine-specific launchers (read secrets from keychain at start)
 apps/honeycomb-mcp/run-with-secrets.sh
 apps/honeycomb-api/run-with-secrets.sh
+apps/x402-facilitator/run-with-secrets.sh
+
+# local MCP config — names a machine-specific launcher; per-machine, never shared
+.mcp.json
 
 # codex exec subagent scratch (fleet audit output)
 .codex-lanes/
