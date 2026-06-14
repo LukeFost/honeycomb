@@ -48,11 +48,6 @@ export const MAKER_PUBKEY = (process.env.MAKER_PUBKEY ??
 export const ENCLAVE_ENCPUB = (process.env.ENCLAVE_ENCPUB ??
 	`0x${"22".repeat(32)}`) as Hex;
 
-// ERC-8004 Identity Registry on Sepolia (winner wallet lookups happen inside the
-// escrow's resolve; surfaced here only for reference / future tools).
-export const IDENTITY_REGISTRY = (process.env.IDENTITY_REGISTRY ??
-	"0x8004A818BFB912233c491871b3d84c89A494BD9e") as Address;
-
 export const JOB_STATUS = [
 	"Open",
 	"Funded",

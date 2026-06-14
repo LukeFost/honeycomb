@@ -4,6 +4,9 @@
     "apps/uniswap-lp": {
       "entry": ["broadcast-fork.ts"]
     },
+    "apps/honeycomb-mcp": {
+      "entry": ["tools/*.ts"]
+    },
     "tools/chain-verify": {
       "entry": ["scripts/*.ts"],
       "ignoreBinaries": ["forge", "tsc", "tsx"],
