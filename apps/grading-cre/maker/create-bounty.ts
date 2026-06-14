@@ -41,7 +41,11 @@ const bundle = privateFiles.map((f) => readFileSync(`${bountyDir}/private/${f}`,
 const testsHash = "0x" + createHash("sha256").update(bundle).digest("hex");
 
 const budget = BigInt(Math.round(reward * 1e6)); // 6-decimal token base units
-const deadline = Math.floor(Date.now() / 1000) + hours * 3600;
+// Deadline = now + hours*3600, unless DEADLINE_SECS overrides (for a quick demo:
+// a ~180s deadline lets resolve fire in the same sitting; resolve gates on
+// block.timestamp > expiredAt, BountyEscrow.sol:234).
+const deadline =
+	Math.floor(Date.now() / 1000) + (process.env.DEADLINE_SECS ? Number(process.env.DEADLINE_SECS) : hours * 3600);
 const specCid = process.env.SPEC_CID ?? `honeycomb://${bountyDir.split("/").pop()}/spec.md`; // TODO: real IPFS CID
 
 const sh = (cmd: string) => execSync(cmd, { encoding: "utf8" }).trim();
