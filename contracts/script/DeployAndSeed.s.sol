@@ -102,8 +102,8 @@ contract DeployAndSeed {
         esc.validate(1, 7, enclave, 40, false, h("v-1-7"));
         esc.validate(2, 11, enclave, 92, true, h("v-2-11"));
         esc.validate(2, 6, enclave, 70, true, h("v-2-6"));
-        esc.validate(3, 11, enclave, 90, true, h("v-3-11"));
-        esc.validate(3, 8, enclave, 88, true, h("v-3-8"));
+        esc.validate(3, 11, enclave, 85, true, h("v-3-11")); // generalist; below Halo on a pure-zk bounty
+        esc.validate(3, 8, enclave, 88, true, h("v-3-8")); // zk specialist → top valid grade, wins bounty 3
         esc.validate(5, 3, enclave, 97, true, h("v-5-3"));
 
         // settlements: #11 wins 1 & 2 (two independent requesters), #8 wins 3, #3 self-wins 5.
