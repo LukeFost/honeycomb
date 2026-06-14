@@ -17,9 +17,9 @@ const BASE = process.env.DEMO_BASE_URL || `http://localhost:${PORT}`;
 type Json = Record<string, any>;
 
 async function get(path: string): Promise<Json> {
-  const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
+  const res = await fetch(`${BASE}${path}`, { cache: "no-store" } as RequestInit);
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}: ${await res.text()}`);
-  return res.json();
+  return res.json() as Promise<Json>;
 }
 
 const checks: { ok: boolean; msg: string }[] = [];
