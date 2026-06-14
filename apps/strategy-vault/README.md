@@ -63,21 +63,31 @@ MAINNET_RPC_URL=https://your-rpc forge test -vv --root .
 
 ## Run the CRE workflow (simulate)
 
-The off-chain half lives in `strategy-workflow/` (TypeScript, compiled to WASM by the CRE
-toolchain). On each CRON tick it builds the Universal Router calldata deterministically, encodes
-the **flat** `Action`, DON-signs it (`runtime.report`), and writes it (`writeReport → forwarder →
-vault.onReport`). v1 has no live quote — calldata is built from config so every DON node is
-byte-identical and consensus is trivial.
+The off-chain half lives in `strategy-workflow/` (TypeScript → WASM). On each CRON tick it pulls a
+**live quote from the real Uniswap Trading API** (`/quote`) in NODE mode, reaches DON **consensus on
+the numeric min-out** (median), rebuilds the Universal Router calldata deterministically from that
+floor, encodes the **flat** `Action`, DON-signs it (`runtime.report`), and writes it (`writeReport →
+forwarder → vault.onReport`). **No fallback** — if the live quote fails / disagrees, the tick fails.
+
+The min-out is the only value crossing consensus; we never consensus the raw API calldata (each node
+gets a different `quoteId`/route). The Uniswap key is a **CRE secret** (`secrets.yaml` maps
+`UNISWAP_API_KEY` → the env var). Simulate reads it from the repo-root `.env`; a deployed workflow
+stores it in the **Vault DON** via `cre secrets create secrets.yaml`.
 
 ```bash
-cd strategy-workflow && bun install && cd ..       # CRE SDK + WASM toolchain
+cd strategy-workflow && bun install && cd ..              # CRE SDK + WASM toolchain
 CRE_TARGET=staging-settings cre workflow simulate strategy-workflow \
-  --non-interactive --trigger-index 0
+  --non-interactive --trigger-index 0 -e ../../.env       # .env supplies UNISWAP_API_KEY
 ```
 
-Passing run logs the tick, attempts the write (no `txHash` without `--broadcast`/a deployed vault —
-expected), and returns the Action summary. `config.staging.json` carries placeholder Sepolia
-addresses + a placeholder `vault`; set the real `vault`/`router` before a `--broadcast` run.
+A passing run logs the live quote (e.g. `minOut=0.5924 WETH` for 1000 USDC) and returns the Action
+summary. The on-chain write shows a "capability not found" / no-`txHash` note — expected in simulate
+(no `--broadcast`, and the local simulator has no mainnet write capability). `config.*.json` targets
+**mainnet** (where the API has deep liquidity); set a real deployed `vault` before broadcasting.
+
+> Route note: Uniswap's best route is often mixed v4+v3 through an intermediary. We take its live
+> min-out as the on-chain floor but execute our proven single-hop V3 path. Following the API's exact
+> multi-hop route is a later enhancement.
 
 ## Finding: the approval model (resolves a DESIGN.md open question)
 
@@ -105,10 +115,10 @@ forge script script/RealSwap.s.sol --rpc-url $MAINNET_RPC_URL --broadcast
 
 | Proven here | Next |
 |---|---|
-| Forwarder→`onReport`→Universal Router swap on a fork (9 tests green) | Live `writeReport` → REAL KeystoneForwarder → deployed vault (needs DON workflow registration + `--broadcast`) |
-| ERC-165 receiver + policy guards (forwarder, minOut, router, token, nonce, expiry) | Live Uniswap quote + quote-consensus across DON nodes (the open risk) |
-| CRE workflow passes `cre workflow simulate` (CRON→Action→report→writeReport) | A real strategy driving the decision (A1 interpreter, then A4 ML policy) |
-| viem→Solidity `Action` encoding cross-checked by a decode test | Deploy to Sepolia, set `expectedWorkflowId`, broadcast end-to-end |
+| Forwarder→`onReport`→Universal Router swap on a fork (9 tests green) | Live `writeReport` → REAL forwarder → deployed vault (needs DON registration + `--broadcast`) |
+| ERC-165 receiver + policy guards (forwarder, minOut, router, token, nonce, expiry) | A real strategy driving the decision (A1 interpreter, then A4 ML policy) |
+| **Live Uniswap `/quote` + DON median-consensus on min-out** in `simulate` (real API, CRE secret) | Follow the API's actual route (multi-hop) instead of the pinned single-hop V3 |
+| CRE workflow + viem→Solidity `Action` cross-checked by a decode test | One chain with Uniswap liquidity + CRE write-capability + forwarder, for true end-to-end |
 
 ### `Action` ABI tuple (for the CRE TS workflow's `encodeAbiParameters`)
 

@@ -174,3 +174,14 @@ body {
   letter-spacing: 0.15em;
   text-transform: uppercase;
 }
+.hc-step-num {
+  flex: none;
+  display: inline-flex;
+  height: 1.5rem;
+  width: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, #f5b431, #e3940f);
+  color: #3a2600;
+}
