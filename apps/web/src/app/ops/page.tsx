@@ -18,6 +18,7 @@
 import { apiGet, isDevMode } from "@/lib/honeycomb";
 import { Card, Chip, SectionLabel, truncAddr } from "@/components/ui";
 import OpsConsole from "@/components/OpsConsole";
+import LogPanel from "@/components/LogPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -191,6 +192,11 @@ export default async function OpsPage() {
           </div>
         )}
       </Card>
+
+      {/* Live service logs (public, redacted at the API source) */}
+      <div className="mt-6">
+        <LogPanel />
+      </div>
     </main>
   );
 }
