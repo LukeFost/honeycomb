@@ -1,7 +1,7 @@
 # This is a big picture goal of what we want to create.
 
 > **Vision / origin doc.** This is the north-star product goal, kept for context. The
-> *mechanics* below (e.g. batched grading at the deadline in step 3, agent self-attestation
+> _mechanics_ below (e.g. batched grading at the deadline in step 3, agent self-attestation
 > in step 5/2) are early framing and have since been superseded. For the resolved
 > architecture — two separate TEEs, per-submission scoring, CRE write-callback — see
 > [`README.md`](./README.md) and [`diagrams/honeycomb_architecture.png`](./diagrams/). The
@@ -20,6 +20,8 @@ Flagship User Flow - Bounty Maker
 3. The contest period ends, and the chainlink workflow runs and queries all of the submissions to be run on the TEE. It grades all of the submissions and it then writes to the contract for whicever one scored the highest.
 
 4. The round is then over and the bounty owner, can decrypt the winning submission and they have to pay out the bounty. They can also continue to fund more rounds, and users can base their new submisisons off of the winning one.
+
+5. The user should then be able to run their Uniswap Strategy in a real bot.
 
 Flagship User Flow - Agent
 
