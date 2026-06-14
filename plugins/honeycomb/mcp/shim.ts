@@ -15,6 +15,7 @@
 //   job_events        GET  /events?eventName=&jobId=&fromBlock=
 //   query_reputation  GET  /reputation?mode=&agentId=&limit=
 //   grade_submission  POST /grade         [write token]
+//   submit_work       POST /submit        [write token]
 //   get_skill         GET  /skill         (text/markdown)
 //
 // Config (env):
@@ -241,6 +242,23 @@ server.registerTool(
 		},
 	},
 	async (args) => ok(await post("/grade", args)),
+);
+
+// --- submit_work ------------------------------------------------------------
+server.registerTool(
+	"submit_work",
+	{
+		title: "Submit to a bounty (solver)",
+		description:
+			"The solver's one-call front door: hand it a bounty id and your strategy file and it does the whole job — checks the bounty is still open, runs your file through the REAL grader, records BOTH gates (execution score + AI validity) on-chain, then tells you in plain English how you did and whether you're now the leader. BROADCASTS real transactions. Needs an enclave-signed grade (set GRADER_ENCLAVE_URL) and the CRE relay; it fails loudly if it can't actually record the grade rather than reporting a false win.",
+		inputSchema: {
+			jobId: z.string().describe("The bounty id you're submitting to (from list_jobs / get_job)."),
+			submissionPath: z.string().describe("Repo-relative path to your submission file (a .py strategy)."),
+			agentId: z.string().optional().describe("Your ERC-8004 agentId — the identity the grade is recorded under. Default 22."),
+			bounty: z.enum(["directional", "lp"]).optional().describe("Which scorer the bounty uses. Default directional."),
+		},
+	},
+	async (args) => ok(await post("/submit", args)),
 );
 
 // --- get_skill --------------------------------------------------------------

@@ -20,6 +20,7 @@
 //   GET  /reputation      ERC-8004 reputation (BigQuery)        [BigQuery auth]
 //   POST /bounties        open + fund a bounty (BROADCASTS)     [SEP_PRIVATE_KEY]
 //   POST /grade           run the real grader                   [demeter venv, INFERENCE key]
+//   POST /submit          solver: grade + record on-chain       [grade deps + CRE relay/CLI]
 //
 // Run:  bun apps/honeycomb-api/server.ts            (PORT defaults to 8787; read routes only)
 //       bash apps/honeycomb-api/run-with-secrets.sh (write+grade routes; keychain secrets)
@@ -33,6 +34,7 @@ import { resolveEarly } from "../honeycomb-mcp/tools/resolveEarly.ts";
 import { getJob, listJobs, jobEvents } from "../honeycomb-mcp/tools/monitor.ts";
 import { queryReputation } from "../honeycomb-mcp/tools/reputation.ts";
 import { gradeSubmission } from "../honeycomb-mcp/tools/grade.ts";
+import { submitWork } from "../honeycomb-mcp/tools/submitWork.ts";
 
 const PORT = Number(process.env.PORT ?? process.env.HONEYCOMB_API_PORT ?? 8787);
 // Bind loopback by default — the write routes broadcast funded txs and spawn the
@@ -202,6 +204,25 @@ async function route(req: Request): Promise<Response> {
 			throw new HttpError("submissionPath must be a repo-relative path", 400);
 		}
 		return json(await gradeSubmission(b as Parameters<typeof gradeSubmission>[0]));
+	}
+
+	// Solver one-call front door: read the bounty -> grade -> record both gates
+	// on-chain (CRE) -> plain-English verdict. Needs the same secrets as /grade
+	// plus the CRE relay key + the `cre` CLI; submitWork throws loudly if absent.
+	if (m === "POST" && pathname === "/submit") {
+		requireWriteAuth(req);
+		const b = await body(req);
+		if (typeof b.jobId !== "string") {
+			throw new HttpError("jobId (string) is required", 400);
+		}
+		if (typeof b.submissionPath !== "string") {
+			throw new HttpError("submissionPath (string) is required", 400);
+		}
+		// Untrusted caller: keep the grader pointed at repo-relative submissions.
+		if (b.submissionPath.startsWith("/")) {
+			throw new HttpError("submissionPath must be a repo-relative path", 400);
+		}
+		return json(await submitWork(b as Parameters<typeof submitWork>[0]));
 	}
 
 	return fail(`no route for ${m} ${pathname}`, 404);

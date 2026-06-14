@@ -2,19 +2,35 @@
 // grade_submission: run a candidate submission through the REAL grader
 // (apps/grading-cre/grader/grade.ts) and return its score + validity callback.
 //
-// We shell to grade.ts unchanged — it already owns the scorer selection (BOUNTY
-// env), the trusted/untrusted process split, and the AI validity call. This tool
-// just sets env + parses the stdout JSON callback.
+// Two execution backends, selected by GRADER_ENCLAVE_URL:
 //
-// Requires INFERENCE_API_KEY_VAR for the validity attestation. For lp bounties
-// the grading-cre .venv (python 3.12/3.14 + zelos-demeter) must be on PATH.
+//   • UNSET (Stage 1, local):  shell to grade.ts unchanged — it owns the scorer
+//     selection (BOUNTY env), the trusted/untrusted process split, the AI validity
+//     call, and a content-commitment digest (NOT a hardware attestation).
+//
+//   • SET (Stage 2, enclave):  POST the submission to the warm grading enclave on
+//     Confidential Space (apps/grading-cre/grader/enclave/enclave_grade_server.py),
+//     which runs the SAME scorer inside the TEE and returns a KMS-HSM-signed score
+//     digest — the exact (r,s,v) BountyEscrow._recordScore ecrecovers on-chain. The
+//     AI validity attestation (Chainlink) still comes from the local grade.ts, which
+//     does not run in this enclave. The enclave's signed score is authoritative and
+//     replaces the local content-commitment.
+//
+// Requires INFERENCE_API_KEY_VAR for the validity attestation. For lp bounties the
+// grading-cre .venv (python 3.12/3.14 + zelos-demeter) must be on PATH. The enclave
+// path additionally needs GRADER_ENCLAVE_URL (the warm CS VM's base URL, e.g.
+// http://VM_INTERNAL_IP:8000), mirroring how apps/web reaches the summon runner.
 // ============================================================================
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
 const GRADER_DIR = join(import.meta.dir, "..", "..", "grading-cre", "grader");
 const GRADE_TS = join(GRADER_DIR, "grade.ts");
+
+// When set, execution grading runs in the warm Confidential Space enclave over HTTP
+// (POST /grade) instead of the local python3 subprocess. Validity still runs locally.
+const GRADER_ENCLAVE_URL = process.env.GRADER_ENCLAVE_URL?.replace(/\/+$/, "");
 
 // grade.ts shells to a bare `python3` (resolved via PATH). Both scorers import
 // demeter, which lives in the grader's own venv (py3.12 + zelos-demeter), not the
@@ -44,6 +60,47 @@ export async function gradeSubmission(args: {
 	agentId?: string;
 }) {
 	if (!args.submissionPath) throw new Error("submissionPath is required");
+
+	// Always run the local grader. Stage 1 (no enclave) -> this IS the result. Stage 2
+	// (enclave set) -> we still need it for the AI validity attestation, which the enclave
+	// does not produce; only its execution score+digest is replaced by the signed bundle.
+	const callback = await gradeLocal(args);
+
+	if (!GRADER_ENCLAVE_URL) return callback;
+
+	// Stage 2: re-grade execution in the warm TEE for a KMS-signed, on-chain-recomputable
+	// score digest. The enclave wants the submission SOURCE (it writes its own temp file),
+	// not a path, so read the file here.
+	const code = readFileSync(args.submissionPath, "utf8");
+	const bundle = await gradeViaEnclave({
+		code,
+		jobId: args.jobId ?? "1",
+		agentId: args.agentId ?? "22",
+	});
+
+	// Merge: the enclave's signed score+digest are authoritative and supersede the local
+	// content-commitment scoreAttestation. Validity stays from the local grader. We surface
+	// BOTH so a caller can see the local score for comparison, but the canonical on-chain
+	// fields (score, scoreDigest, signature) come from the TEE.
+	return {
+		...callback,
+		score: bundle.score,
+		scoreDigest: bundle.scoreDigest,
+		signature: bundle.signature,
+		signer: bundle.signer,
+		attestationSource: "confidential-space" as const,
+		localScore: callback.score,
+		localScoreAttestation: callback.scoreAttestation,
+	};
+}
+
+// Stage 1: shell to grade.ts unchanged and parse its stdout callback JSON.
+async function gradeLocal(args: {
+	submissionPath: string;
+	bounty?: string;
+	jobId?: string;
+	agentId?: string;
+}) {
 	const env: Record<string, string> = { ...(process.env as Record<string, string>) };
 	if (args.bounty) env.BOUNTY = args.bounty;
 	if (existsSync(GRADER_VENV_BIN)) {
@@ -63,4 +120,48 @@ export async function gradeSubmission(args: {
 	// grade.ts prints the callback JSON to stdout, logs to stderr.
 	const callback = JSON.parse(stdout.trim());
 	return { ...callback, graderLog: stderr.trim() };
+}
+
+// Stage 2: POST the submission source to the warm grading enclave (Confidential Space) and
+// return its KMS-signed grade bundle {jobId, agentId, score, scoreDigest, signature:{r,s,v},
+// signer}. No silent fallback: a transport error or non-200 throws loudly so /grade reports
+// the enclave failure rather than masking it with the local score.
+async function gradeViaEnclave(req: { code: string; jobId: string; agentId: string }): Promise<{
+	jobId: number;
+	agentId: number;
+	score: number;
+	scoreDigest: string;
+	signature: { r: string; s: string; v: number };
+	signer: string;
+}> {
+	const url = `${GRADER_ENCLAVE_URL}/grade`;
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				code: req.code,
+				jobId: Number(req.jobId),
+				agentId: Number(req.agentId),
+			}),
+		});
+	} catch (e) {
+		throw new Error(`grading enclave unreachable at ${url}: ${(e as Error).message}`);
+	}
+	const text = await res.text();
+	if (!res.ok) {
+		throw new Error(`grading enclave ${res.status} at ${url}: ${text.trim()}`);
+	}
+	let bundle: unknown;
+	try {
+		bundle = JSON.parse(text);
+	} catch {
+		throw new Error(`grading enclave returned non-JSON (${res.status}): ${text.slice(0, 400)}`);
+	}
+	const b = bundle as Record<string, unknown>;
+	if (typeof b.score !== "number" || typeof b.scoreDigest !== "string" || !b.signature) {
+		throw new Error(`grading enclave returned an unexpected bundle: ${JSON.stringify(b).slice(0, 400)}`);
+	}
+	return bundle as Awaited<ReturnType<typeof gradeViaEnclave>>;
 }
