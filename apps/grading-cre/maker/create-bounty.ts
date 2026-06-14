@@ -29,6 +29,9 @@ if (!PK) throw new Error("SEP_PRIVATE_KEY not set");
 const reward = Number(process.argv[2] ?? 50); // human USDC (6dp token)
 const hours = Number(process.argv[3] ?? 1);
 const bountyDir = process.argv[4] ?? "maker/bounties/uniswap-lp-trading-bot";
+// Grader enclave's score signer (ecrecover target) + maker's X25519 delivery pubkey.
+const ATTESTER = process.env.ATTESTER ?? "0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F";
+const MAKER_PUBKEY = process.env.MAKER_PUBKEY ?? `0x${"11".repeat(32)}`; // override with the real maker key
 
 // 1. Commitment to the PRIVATE bundle (never published). Hash whatever lives
 //    under the passed dir's private/ — sorted so the order is deterministic
@@ -63,7 +66,7 @@ send(`${USDC} "approve(address,uint256)" ${ESCROW} ${budget}`);
 //    not nextJobId (a concurrent creation could shift it).
 console.error(`[maker] creating bounty...`);
 const receipt = JSON.parse(
-	send(`${ESCROW} "createBounty(uint256,uint64,bytes32,string)" ${budget} ${deadline} ${testsHash} "${specCid}"`),
+	send(`${ESCROW} "createBounty(uint256,uint64,bytes32,string,address,bytes32)" ${budget} ${deadline} ${testsHash} "${specCid}" ${ATTESTER} ${MAKER_PUBKEY}`),
 );
 const log = (receipt.logs ?? []).find((l: any) => l.address?.toLowerCase() === ESCROW.toLowerCase());
 if (!log) throw new Error("JobCreated event not found in receipt");

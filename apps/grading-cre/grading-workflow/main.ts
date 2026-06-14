@@ -59,7 +59,7 @@ export type Config = {
 //   kind="validity" — the AI Attestor's callback (carries the verdict)
 // See simulation/score-callback.json and simulation/validity-callback.json.
 type Callback = {
-	kind?: "score" | "validity";
+	kind?: "score" | "validity" | "delivery";
 	jobId?: number | string;
 	agentId?: number | string; // ERC-8004 agentId of the submitter
 	status?: string; // "completed" | "failed"
@@ -69,11 +69,14 @@ type Callback = {
 	// validity callback:
 	valid?: boolean; // AI validity verdict (valid && not hardcoded)
 	validityAttestation?: string; // Confidential AI Attestor digest (bytes32 hex)
+	// delivery callback (post-resolve, from the grader enclave):
+	deliveryCid?: string; // winning code re-sealed to the maker's key
 };
 
 const ZERO_BYTES32 = "0x".padEnd(66, "0") as Hex;
 const SCORE_ABI = "uint256 jobId, uint256 agentId, uint16 score, uint8 v, bytes32 r, bytes32 s";
 const VALIDITY_ABI = "uint256 jobId, uint256 agentId, bool valid, bytes32 validityAtt";
+const DELIVER_ABI = "uint256 jobId, string deliveryCid";
 const ACTION_ABI = "uint8 action, bytes data";
 
 /** Normalize a 32-byte hex digest (with or without 0x) to bytes32. */
@@ -139,6 +142,12 @@ export const onCallback = (runtime: Runtime<Config>, payload: HTTPPayload): stri
 		runtime.log(`recordValidity job=${jobId} agent=${agentId} valid=${valid} att=${validityAtt}`);
 		report = actionReport(1, encodeAbiParameters(parseAbiParameters(VALIDITY_ABI), [jobId, agentId, valid, validityAtt]));
 		summary = { action: "recordValidity", jobId: jobId.toString(), agentId: agentId.toString(), valid };
+	} else if (cb.kind === "delivery") {
+		// Grader enclave callback (post-resolve): winning code re-sealed to the maker's key.
+		const deliveryCid = cb.deliveryCid ?? "";
+		runtime.log(`deliverWinner job=${jobId} deliveryCid=${deliveryCid}`);
+		report = actionReport(3, encodeAbiParameters(parseAbiParameters(DELIVER_ABI), [jobId, deliveryCid]));
+		summary = { action: "deliverWinner", jobId: jobId.toString(), deliveryCid };
 	} else {
 		runtime.log(`unknown kind "${cb.kind}"; expected "score" or "validity".`);
 		return JSON.stringify({ action: "skipped", reason: "unknown kind" });
