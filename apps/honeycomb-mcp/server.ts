@@ -6,7 +6,7 @@
 //   • create_bounty     — hash private bundle -> approve USDC -> createBounty (Sepolia, broadcasts)
 //   • get_job           — full Job struct + settled + winner wallet
 //   • list_jobs         — recent bounties, newest first
-//   • job_events        — GradeRecorded / JobResolved / JobCreated logs
+//   • job_events        — ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated logs
 //   • query_reputation  — ERC-8004 reputation from BigQuery (counts/feedback/leaderboard)
 //   • grade_submission  — run a submission through the REAL grader, get score + validity
 //
@@ -74,6 +74,18 @@ server.registerTool(
 				.describe(
 					"ADVANCED override of the private bundle file list (relative to bountyDir). Leave unset: the default sorted walk of private/ matches create-bounty.ts's testsHash exactly. An explicit list will NOT reproduce the maker's digest.",
 				),
+			attesterKey: z
+				.string()
+				.optional()
+				.describe(
+					"Execution enclave's score-signer address, sent on-chain by the 6-arg createBounty (the escrow ecrecovers each grade against it). Default: the live KMS score-signer.",
+				),
+			makerPubKey: z
+				.string()
+				.optional()
+				.describe(
+					"Maker's X25519 delivery pubkey as bytes32; the grader seals the winning submission to it. Sent on-chain (createBounty reverts on zero). Default: MAKER_PUBKEY from env/chain.ts.",
+				),
 		},
 	},
 	async (args) => ok(await createBounty(args)),
@@ -108,11 +120,14 @@ server.registerTool(
 	{
 		title: "Read bounty events",
 		description:
-			"Fetch decoded GradeRecorded / JobResolved / JobCreated logs from BountyEscrow over a block range. Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
+			"Fetch decoded ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated logs from BountyEscrow over a block range. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
 		inputSchema: {
 			jobId: z.string().optional().describe("Filter to one job id. Omit for all jobs."),
-			eventName: z.enum(["GradeRecorded", "JobResolved", "JobCreated"]).optional().describe("Which event. Default GradeRecorded."),
-			fromBlock: z.string().optional().describe("Start block (decimal or hex). Default: last 50000 blocks."),
+			eventName: z
+				.enum(["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated"])
+				.optional()
+				.describe("Which event. Default ScoreRecorded."),
+			fromBlock: z.string().optional().describe("Start block (decimal or hex). Default: last ~5000 blocks."),
 		},
 	},
 	async (args) => ok(await jobEvents(args)),
