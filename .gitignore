@@ -44,3 +44,6 @@ gcp-key.json
 # machine-specific launchers (read secrets from keychain at start)
 apps/honeycomb-mcp/run-with-secrets.sh
 apps/honeycomb-api/run-with-secrets.sh
+
+# codex exec subagent scratch (fleet audit output)
+.codex-lanes/
