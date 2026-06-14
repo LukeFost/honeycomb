@@ -23,16 +23,19 @@ const API_KEY = process.env.INFERENCE_API_KEY_VAR;
 const sha256hex = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 
 const HERE = dirname(new URL(import.meta.url).pathname);
-const SCORER = join(HERE, "scorer.py");
-const PRIVATE_SERIES = join(
-	HERE,
-	"..",
-	"maker",
-	"bounties",
-	"uniswap-lp-trading-bot",
-	"private",
-	"prices_private.json",
-);
+
+// Two bounty types, two scorers, SAME CLI contract (print one int 0..10000 to
+// stdout, logs to stderr) and SAME trusted/untrusted process split:
+//   directional  -> scorer.py    over prices_private.json   (signal()->label)
+//   lp (Demeter) -> lp_scorer.py over pool_private.csv       (Strategy subclass)
+// Select with BOUNTY=lp; default is the directional grader. The rest of grade.ts
+// (digest, validity, settlement payload) is identical for both.
+const BOUNTY = process.env.BOUNTY ?? "directional";
+const IS_LP = BOUNTY === "lp";
+const SCORER = join(HERE, IS_LP ? "lp_scorer.py" : "scorer.py");
+const PRIVATE_SERIES = IS_LP
+	? join(HERE, "..", "maker", "bounties", "uniswap-lp-range-bot", "private", "pool_private.csv")
+	: join(HERE, "..", "maker", "bounties", "uniswap-lp-trading-bot", "private", "prices_private.json");
 
 // ---------------------------------------------------------------------------
 // REAL execution grading. Runs the submission against the PRIVATE price series
