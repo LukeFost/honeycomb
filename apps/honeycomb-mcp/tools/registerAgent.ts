@@ -93,7 +93,11 @@ export async function registerAgent(args: { tokenURI?: string } = {}) {
 				functionName: "register",
 				args: [],
 			});
-	const receipt = await publicClient.waitForTransactionReceipt({ hash });
+	// Wait for 2 confirmations, not just 1. The post-mint getAgentWallet read below
+	// hits a load-balanced RPC endpoint, and a lagging read replica can still be one
+	// block behind the block that mined the mint. An extra confirmation gives the
+	// pool's replicas time to index the new state before we read it back.
+	const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 2 });
 
 	// 4. Parse the Registered event for the minted agentId. The registry emits it from
 	//    IDENTITY_REGISTRY; ignore any unrelated logs (a paymaster, a proxy admin).
@@ -120,16 +124,49 @@ export async function registerAgent(args: { tokenURI?: string } = {}) {
 	// so a later submit(jobId, agentId, ...) from this key passes the escrow's
 	// msg.sender == getAgentWallet check. If it isn't, say so loudly rather than imply
 	// the agent can compete.
-	const registeredWallet = (await readContract(publicClient, {
-		address: IDENTITY_REGISTRY,
-		abi: IDENTITY_ABI,
-		functionName: "getAgentWallet",
-		args: [BigInt(agentId)],
-	})) as `0x${string}`;
-	const walletMatches = registeredWallet.toLowerCase() === account.address.toLowerCase();
+	//
+	// But this read RACES the RPC pool's state indexing: even after several
+	// confirmations a lagging read replica can return the zero address for a
+	// just-minted agentId (observed on Sepolia 2026-06-14: agentId 6600 minted real
+	// — getAgentWallet/ownerOf both returned the signer on a fresh read seconds later
+	// — yet five back-to-back reads right after the mint all returned 0x0). So we
+	// retry the read with backoff and only throw the "do not submit" error if it
+	// STILL mismatches after the replicas have had a chance to catch up. This keeps
+	// the loud-failure contract (a genuinely wrong wallet still throws) without
+	// false-negativing a confirmed mint.
+	//
+	// Two things make the retry actually clear the lag:
+	//   1. We re-fetch the chain head each attempt and pin the read to that explicit
+	//      blockNumber. viem caches eth_call by request for ~cacheTime, so without an
+	//      advancing block tag every retry could re-serve the same cached 0x0 instead
+	//      of hitting the network — pinning to a fresh, advancing block busts that
+	//      cache and forces a real read against newer state.
+	//   2. A generous total budget (8 attempts x 3s) outlasts the observed lag, which
+	//      exceeded a 5x1.5s window on this pool.
+	const READ_ATTEMPTS = 8;
+	const READ_BACKOFF_MS = 3_000;
+	let registeredWallet: `0x${string}` = "0x0000000000000000000000000000000000000000";
+	let walletMatches = false;
+	for (let attempt = 1; attempt <= READ_ATTEMPTS; attempt++) {
+		const blockNumber = await publicClient.getBlockNumber();
+		registeredWallet = (await readContract(publicClient, {
+			address: IDENTITY_REGISTRY,
+			abi: IDENTITY_ABI,
+			functionName: "getAgentWallet",
+			args: [BigInt(agentId)],
+			blockNumber,
+		})) as `0x${string}`;
+		walletMatches = registeredWallet.toLowerCase() === account.address.toLowerCase();
+		if (walletMatches) break;
+		// Mismatch (typically a lagging-replica 0x0). Back off and re-read unless this
+		// was the last attempt — the throw below handles a persistent mismatch.
+		if (attempt < READ_ATTEMPTS) {
+			await new Promise((resolve) => setTimeout(resolve, READ_BACKOFF_MS));
+		}
+	}
 	if (!walletMatches) {
 		throw new Error(
-			`registered agentId ${agentId}, but getAgentWallet(${agentId}) is ${registeredWallet}, not the signer ${account.address}. submit() would revert "not agent wallet". This is unexpected for a fresh mint — do not submit under this id.`,
+			`registered agentId ${agentId}, but getAgentWallet(${agentId}) is ${registeredWallet} after ${READ_ATTEMPTS} reads, not the signer ${account.address}. submit() would revert "not agent wallet". This is unexpected for a fresh mint — do not submit under this id. (Verify on the explorer: the mint tx ${hash} may have landed even if this read lags.)`,
 		);
 	}
 
