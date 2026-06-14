@@ -55,6 +55,11 @@ export type Config = {
 	maxVaults: number; // fan-out cap per tick (CRE HTTP quota)
 	deadlineSeconds: number;
 	gasLimit: string;
+	// Gap 7 — declarative "accumulate" strategy. The workflow only swaps when the strategy
+	// DECIDES to (it no longer blindly swaps every active vault). Optional; sensible defaults.
+	priceApiBase?: string; // Coinbase Exchange candles base (default api.exchange.coinbase.com)
+	priceGranularity?: number; // candle granularity in seconds (default 3600 = hourly)
+	accumulateBandBps?: number; // buy when last <= avg * (1 + band); default 50 (0.50%)
 };
 
 // Each user's row, as decoded from StrategyRegistry.listActive(...).
@@ -137,8 +142,58 @@ function buildUniversalRouterCalldata(
 	});
 }
 
-// Serve ONE registered vault: live quote -> consensus min-out -> Action -> writeReport.
-// Throws on any failure for this vault; the caller catches so other vaults are unaffected.
+// --- Gap 7: declarative "accumulate" strategy decision -----------------------
+// The winning strategy is expressed declaratively: ACCUMULATE — buy the asset only when its
+// live price is at/below its recent average plus a small band (i.e. "not pumping"). This mirrors
+// grader/run_signal.py's spirit (decide from a Coinbase ETH/USD close series), but the decision
+// is computed in-workflow under DON consensus instead of off-chain in bash. If the decision is
+// "buy" we proceed with the existing USDC->WETH swap; otherwise we hold/skip (no report written).
+type PriceStats = { last: number; avg: number };
+
+// Coinbase Exchange candles: [time, low, high, open, close, volume], newest first. We fetch a
+// short series, median each statistic across DON nodes, and decide from the consensus values.
+function fetchPriceStats(
+	runtime: Runtime<Config>,
+	cfg: Config,
+	http: InstanceType<typeof cre.capabilities.HTTPClient>,
+): PriceStats {
+	const base = cfg.priceApiBase ?? "https://api.exchange.coinbase.com";
+	const gran = cfg.priceGranularity ?? 3600;
+	const fetch = (sendRequester: HTTPSendRequester): PriceStats => {
+		const resp = sendRequester
+			.sendRequest({
+				method: "GET",
+				url: `${base}/products/ETH-USD/candles?granularity=${gran}`,
+				headers: { "User-Agent": "honeycomb-e2e" },
+			})
+			.result();
+		if (resp.statusCode !== 200) throw new Error(`/candles HTTP ${resp.statusCode}`);
+		const rows = JSON.parse(Buffer.from(resp.body).toString("utf-8")) as number[][];
+		if (!Array.isArray(rows) || rows.length === 0) throw new Error("empty candle series");
+		rows.sort((a, b) => a[0] - b[0]); // chronological
+		const closes = rows.map((c) => c[4]); // close price
+		const window = closes.slice(-20); // recent average over up to 20 closes
+		const avg = window.reduce((s, p) => s + p, 0) / window.length;
+		return { last: closes[closes.length - 1], avg };
+	};
+	return http
+		.sendRequest(
+			runtime,
+			fetch,
+			ConsensusAggregationByFields<PriceStats>({ last: median, avg: median }),
+		)()
+		.result();
+}
+
+// ACCUMULATE rule: buy when last <= avg * (1 + band). Returns true to swap, false to hold.
+function shouldAccumulate(stats: PriceStats, bandBps: number): boolean {
+	const ceiling = stats.avg * (1 + bandBps / 10_000);
+	return stats.last <= ceiling;
+}
+
+// Serve ONE registered vault: strategy decision -> (if buy) live quote -> consensus min-out ->
+// Action -> writeReport. Throws on any failure for this vault; the caller catches so other
+// vaults are unaffected.
 function serveVault(
 	runtime: Runtime<Config>,
 	cfg: Config,
@@ -146,8 +201,29 @@ function serveVault(
 	http: InstanceType<typeof cre.capabilities.HTTPClient>,
 	apiKey: string,
 	e: Entry,
+	stats: PriceStats,
 ): Record<string, unknown> {
 	const amountIn = e.amountIn;
+
+	// Gap 7: act on the strategy's decision instead of always swapping.
+	const bandBps = cfg.accumulateBandBps ?? 50;
+	if (!shouldAccumulate(stats, bandBps)) {
+		runtime.log(
+			`vault ${e.vault}: strategy hold/skip — last=${stats.last} > avg*(1+${bandBps}bps)=${(
+				stats.avg *
+				(1 + bandBps / 10_000)
+			).toFixed(2)}`,
+		);
+		return {
+			vault: e.vault,
+			decision: "hold",
+			last: stats.last,
+			avg: stats.avg,
+			txHash: null,
+			error: null,
+		};
+	}
+	runtime.log(`vault ${e.vault}: strategy BUY — last=${stats.last} <= avg*(1+${bandBps}bps)`);
 
 	const fetchQuote = (sendRequester: HTTPSendRequester): QuoteNumerics => {
 		const reqBody = {
@@ -223,7 +299,13 @@ function serveVault(
 		.result();
 	const txHash = reply.txHash ? toHex(reply.txHash) : null;
 	runtime.log(`vault ${e.vault}: minOut=${minOutWei} tx=${txHash ?? "n/a"} err=${reply.errorMessage ?? "n/a"}`);
-	return { vault: e.vault, minOutWei: minOutWei.toString(), txHash, error: reply.errorMessage ?? null };
+	return {
+		vault: e.vault,
+		decision: "buy",
+		minOutWei: minOutWei.toString(),
+		txHash,
+		error: reply.errorMessage ?? null,
+	};
 }
 
 // --- CRON handler — fan out over every registered vault ---------------------
@@ -261,11 +343,30 @@ export const onTick = (runtime: Runtime<Config>): string => {
 
 	runtime.log(`registry ${cfg.registry}: ${entries.length} active vault(s)`);
 
-	// 2. Serve each vault independently; one failure never blocks the others.
+	// 2. Compute the strategy decision ONCE per tick from a consensus price series (shared by
+	//    all vaults — saves HTTP quota vs per-vault). If the series can't be fetched we skip the
+	//    whole tick rather than swap blindly (fail-closed: hold beats an uninformed trade).
+	let stats: PriceStats;
+	try {
+		stats = fetchPriceStats(runtime, cfg, http);
+		runtime.log(`strategy price: last=${stats.last} avg=${stats.avg}`);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		runtime.log(`strategy: hold/skip all — price series unavailable: ${message}`);
+		return JSON.stringify({
+			registry: cfg.registry,
+			servedVaults: entries.length,
+			decision: "hold",
+			error: message,
+			results: [],
+		});
+	}
+
+	// 3. Serve each vault independently; one failure never blocks the others.
 	const results: Record<string, unknown>[] = [];
 	for (const e of entries) {
 		try {
-			results.push(serveVault(runtime, cfg, evm, http, apiKey, e));
+			results.push(serveVault(runtime, cfg, evm, http, apiKey, e, stats));
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			runtime.log(`vault ${e.vault}: skipped — ${message}`);

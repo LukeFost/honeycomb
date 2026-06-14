@@ -14,8 +14,14 @@ interface IERC20 {
 /// @notice Permit2 AllowanceTransfer.approve — a smart-account vault cannot produce an
 ///         EOA EIP-712 Permit2 signature, so it grants the Universal Router a standing
 ///         Permit2 allowance via this (non-signature) call. See README "approval model".
+///         `allowance(...)` lets the vault read its current Permit2 allowance so it can
+///         self-top-up just-in-time inside _execute (no external owner call needed).
 interface IPermit2 {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
+    function allowance(address user, address token, address spender)
+        external
+        view
+        returns (uint160 amount, uint48 expiration, uint48 nonce);
 }
 
 /// @notice ERC-165. The canonical CRE `IReceiver is IERC165`, and the real KeystoneForwarder
@@ -251,6 +257,15 @@ contract StrategyVault is IReceiver {
         if (uint256(swapsThisEpoch) + 1 > policy.maxSwapsPerEpoch) revert RateLimited();
         if (spentThisEpoch + a.amountIn + a.value > policy.spendCapPerEpoch) revert SpendCapExceeded();
 
+        // ---- just-in-time Permit2 allowance (router can pull tokenIn from this vault) ----
+        // This runs AFTER every policy check above (router allowlist, token allowlist, spend
+        // cap, rate limit, expiry, replay, slippage floor enforced post-call). The swap is
+        // already fully bounded, so self-granting the standing allowance here adds NO new trust
+        // surface — it only removes the need for the owner to externally top up `setupAllowance`
+        // before each swap (Permit2 allowance decrements per pull). `to` is pinned to
+        // policy.router and tokenIn is allowlisted, so the approval target/asset are constrained.
+        _ensureRouterAllowance(a.tokenIn, a.to, a.amountIn);
+
         // ---- snapshot, forward the call, verify by balance delta ----
         uint256 inBefore  = IERC20(a.tokenIn).balanceOf(address(this));
         uint256 outBefore = IERC20(a.tokenOut).balanceOf(address(this));
@@ -271,6 +286,21 @@ contract StrategyVault is IReceiver {
         spentThisEpoch += spent + a.value;
 
         emit SwapExecuted(a.tokenIn, a.tokenOut, spent, received, a.nonce, a.artifactHash);
+    }
+
+    /// @notice Ensure (this vault -> Permit2 -> router) can move at least `amountIn` of `token`.
+    ///         Idempotent and cheap: it tops up to the max only when the current Permit2 allowance
+    ///         is short, so the steady state is one approve ever. Called inside _execute AFTER the
+    ///         policy gate, so it never widens what a swap can do.
+    function _ensureRouterAllowance(address token, address router, uint256 amountIn) internal {
+        (uint160 allowed, , ) = IPermit2(PERMIT2).allowance(address(this), token, router);
+        if (allowed < amountIn) {
+            // The ERC20->Permit2 approval is what lets Permit2 custody the token; set it to max
+            // once (re-setting is a no-op for tokens that keep max, harmless otherwise).
+            IERC20(token).approve(PERMIT2, type(uint256).max);
+            // Permit2 allowance never expires within this grant window; use the max uint48.
+            IPermit2(PERMIT2).approve(token, router, type(uint160).max, type(uint48).max);
+        }
     }
 
     function _rollEpoch() internal {

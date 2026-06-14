@@ -143,6 +143,37 @@ contract StrategyVaultForkSwap is Test {
         emit log_named_decimal_uint("WETH out", received, 18);
     }
 
+    /// Gap 7: the vault self-grants its Permit2 allowance just-in-time inside _execute, so a
+    /// freshly-deployed vault that NEVER had setupAllowance called can still swap. Proves the
+    /// CRE-driven path is self-sufficient (no external maker top-up needed).
+    function test_ForwarderSwapSucceeds_NoPriorSetupAllowance() public {
+        // Fresh vault, funded, policy set — but setupAllowance is deliberately NOT called.
+        StrategyVault fresh = new StrategyVault(forwarder, address(this));
+        address[] memory toks = new address[](2);
+        toks[0] = USDC;
+        toks[1] = WETH;
+        fresh.setPolicy(UR, toks, 100_000e6, 100, uint64(block.timestamp + 1 days), 10, 1 days);
+        deal(USDC, address(fresh), FUND);
+
+        uint256 minOut = _quoteMinOut(AMOUNT_IN, 100);
+        // _urCalldata/_report reference `vault` for the recipient; point swap output at `fresh`.
+        bytes memory commands = abi.encodePacked(V3_SWAP_EXACT_IN);
+        bytes memory path = abi.encodePacked(USDC, FEE, WETH);
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = abi.encode(address(fresh), AMOUNT_IN, minOut, path, true);
+        bytes memory urData =
+            abi.encodeWithSignature("execute(bytes,bytes[],uint256)", commands, inputs, block.timestamp + 600);
+        bytes memory report = abi.encode(
+            UR, urData, uint256(0), minOut, uint64(block.timestamp + 600),
+            USDC, WETH, AMOUNT_IN, keccak256("jit"), keccak256("strategy-v1")
+        );
+
+        uint256 wethBefore = IERC20(WETH).balanceOf(address(fresh));
+        vm.prank(forwarder);
+        fresh.onReport("", report);
+        assertGt(IERC20(WETH).balanceOf(address(fresh)), wethBefore, "JIT-approved swap produced no WETH");
+    }
+
     function test_RevertWhen_NotForwarder() public {
         bytes memory report = _report(UR, USDC, WETH, AMOUNT_IN, 0, 0, keccak256("x"));
         vm.expectRevert(StrategyVault.NotForwarder.selector);
