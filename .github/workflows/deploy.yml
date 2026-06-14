@@ -1,0 +1,161 @@
+# Deploy Honeycomb to Cloud Run on every push to main.
+#
+# Mirrors the manual scripts:
+#   apps/honeycomb-api/deploy.sh  -> the deploy-api job
+#   apps/web/deploy.sh            -> the deploy-web job
+# Each job: Cloud Build builds+pushes the image (per-app cloudbuild.yaml), then
+# `gcloud run deploy` ships it with the same flags/secrets the scripts use. The two
+# jobs run in PARALLEL so a quick web change does not wait on the slow api venv build.
+#
+# AUTH: a JSON key for the deploy SA lives in repo secret GCP_SA_KEY.
+#   The SA is bq-script@honeycomb-499305.iam.gserviceaccount.com — it already holds
+#   run.admin-equivalent (it's project Owner), cloudbuild.builds.editor, actAs on
+#   itself (it IS the runtime SA), and secretAccessor on the mounted secrets.
+#   Create/refresh the key (run as someone who can create keys on that SA):
+#     gcloud iam service-accounts keys create key.json \
+#       --iam-account=bq-script@honeycomb-499305.iam.gserviceaccount.com
+#   then:  gh secret set GCP_SA_KEY < key.json   (and shred key.json after).
+#
+# To deploy without pushing (e.g. re-ship current main), use the "Run workflow"
+# button — workflow_dispatch is wired below.
+
+name: deploy
+
+"on":
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# One in-flight deploy per service at a time. A newer push supersedes an older,
+# still-running deploy instead of stacking Cloud Run revisions out of order.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT: honeycomb-499305
+  REGION: us-central1
+  REPO: honeycomb
+  RUNTIME_SA: bq-script@honeycomb-499305.iam.gserviceaccount.com
+
+jobs:
+  deploy-api:
+    name: deploy honeycomb-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 45 # the api image rebuilds a python venv + cre CLI; Cloud Build timeout is 30m
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # Artifact Registry repo (idempotent; shared with web).
+      - name: ensure artifact registry repo
+        run: |
+          gcloud artifacts repositories describe "$REPO" \
+            --project="$PROJECT" --location="$REGION" >/dev/null 2>&1 \
+          || gcloud artifacts repositories create "$REPO" \
+               --project="$PROJECT" --location="$REGION" \
+               --repository-format=docker \
+               --description="Honeycomb container images"
+
+      - name: build + push image
+        env:
+          IMAGE: us-central1-docker.pkg.dev/honeycomb-499305/honeycomb/honeycomb-api:latest
+        run: |
+          gcloud builds submit --project="$PROJECT" \
+            --config apps/honeycomb-api/cloudbuild.yaml \
+            --substitutions="_IMAGE=${IMAGE}" .
+
+      # Same flags as apps/honeycomb-api/deploy.sh step 3. --min-instances=1 +
+      # --no-cpu-throttling keep the co-located chain subscriber's WS loop alive.
+      - name: deploy to cloud run
+        env:
+          IMAGE: us-central1-docker.pkg.dev/honeycomb-499305/honeycomb/honeycomb-api:latest
+          GRADER_ENCLAVE_URL: http://10.128.0.14:8000
+          HONEYCOMB_CRE_TARGET: mainnet-settings
+        run: |
+          gcloud run deploy honeycomb-api \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="$IMAGE" \
+            --service-account="$RUNTIME_SA" \
+            --allow-unauthenticated \
+            --port=8080 \
+            --cpu=2 --memory=2Gi \
+            --min-instances=1 --max-instances=2 \
+            --no-cpu-throttling \
+            --timeout=300 \
+            --vpc-connector=honeycomb-conn \
+            --vpc-egress=private-ranges-only \
+            --set-env-vars="HOST=0.0.0.0,GRADER_ENCLAVE_URL=${GRADER_ENCLAVE_URL},HONEYCOMB_CRE_TARGET=${HONEYCOMB_CRE_TARGET},HONEYCOMB_GRADER_VENV=/repo/apps/grading-cre/grader/.venv/bin,HONEYCOMB_PYTHON=/repo/apps/grading-cre/grader/.venv/bin/python" \
+            --set-secrets="SEP_PRIVATE_KEY=honeycomb-sep-private-key:latest,INFERENCE_API_KEY_VAR=honeycomb-inference-api-key:latest,SEPOLIA_RPC=honeycomb-sepolia-rpc:latest,CRE_API_KEY=honeycomb-cre-api-key:latest,HONEYCOMB_API_TOKEN=honeycomb-api-token:latest,DATABASE_URL=honeycomb-database-url:latest,SEPOLIA_WS=honeycomb-sepolia-ws:latest"
+
+      - name: report url
+        run: |
+          echo "honeycomb-api: $(gcloud run services describe honeycomb-api \
+            --project="$PROJECT" --region="$REGION" --format='value(status.url)')" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-web:
+    name: deploy honeycomb-web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: ensure artifact registry repo
+        run: |
+          gcloud artifacts repositories describe "$REPO" \
+            --project="$PROJECT" --location="$REGION" >/dev/null 2>&1 \
+          || gcloud artifacts repositories create "$REPO" \
+               --project="$PROJECT" --location="$REGION" \
+               --repository-format=docker \
+               --description="Honeycomb container images"
+
+      - name: build + push image
+        env:
+          IMAGE: us-central1-docker.pkg.dev/honeycomb-499305/honeycomb/web:latest
+        run: |
+          gcloud builds submit --project="$PROJECT" \
+            --config apps/web/cloudbuild.yaml \
+            --substitutions="_IMAGE=${IMAGE}" .
+
+      # Same flags as apps/web/deploy.sh step 3. HONEYCOMB_DEV=0 keeps /ops read-only;
+      # DATABASE_URL is mounted from Secret Manager for the /agents pages.
+      - name: deploy to cloud run
+        env:
+          IMAGE: us-central1-docker.pkg.dev/honeycomb-499305/honeycomb/web:latest
+          BQ_ESCROW_ADDRESS: "0x90058162D3d55542f39507d0328538824A24C9C3"
+          BQ_BILLING_PROJECT: honeycomb-499305
+          HONEYCOMB_API_URL: https://honeycomb-api-912224428574.us-central1.run.app
+          HONEYCOMB_DEV: "0"
+        run: |
+          gcloud run deploy honeycomb-web \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="$IMAGE" \
+            --service-account="$RUNTIME_SA" \
+            --allow-unauthenticated \
+            --port=8080 \
+            --cpu=1 --memory=512Mi \
+            --min-instances=0 --max-instances=4 \
+            --set-env-vars="BQ_ESCROW_ADDRESS=${BQ_ESCROW_ADDRESS},BQ_BILLING_PROJECT=${BQ_BILLING_PROJECT},HONEYCOMB_API_URL=${HONEYCOMB_API_URL},HONEYCOMB_DEV=${HONEYCOMB_DEV}" \
+            --set-secrets="DATABASE_URL=honeycomb-database-url:latest"
+
+      - name: report url
+        run: |
+          echo "honeycomb-web: $(gcloud run services describe honeycomb-web \
+            --project="$PROJECT" --region="$REGION" --format='value(status.url)')" \
+            >> "$GITHUB_STEP_SUMMARY"
