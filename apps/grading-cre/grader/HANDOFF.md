@@ -96,7 +96,7 @@ via Solidity ecrecover. See `enclave/deploy.sh` + memory `grader-stage2-live-pro
   Confidential Space; LP is proven live LOCALLY (the .venv). Same grade.ts, same callback,
   so it's a deploy not a redesign — but the LP scorer has not run inside the TEE. To
   containerize: add `lp_engine/lp_scorer/lp_worker.py` + `pool_private.csv` to the enclave
-  image, install `zelos-demeter` (needs py3.12 base, see §4), pass `BOUNTY=lp`.
+  image, install `zelos-demeter` (works on a py3.12 OR py3.14 base, see §4), pass `BOUNTY=lp`.
 - **Sample data is synthetic.** `prices_private.json` (40 bars) and `pool_private.csv`
   (72 hourly bars, see §4) are demo series, not a real WETH/USDC backtest. Riley's
   `analysis/` BigQuery pipeline is the eventual real feed. Out of the spine's critical path.
@@ -105,12 +105,17 @@ via Solidity ecrecover. See `enclave/deploy.sh` + memory `grader-stage2-live-pro
 
 ## 4. HARD-WON FACTS (cost real effort to find)
 
-- **demeter needs Python 3.12.** `pip install zelos-demeter` (PyPI name; the import is
-  `demeter`). It does NOT install on the system python3 (3.14) — it errors. `analysis/.venv`
-  is also 3.14 and has no demeter (useless for LP). The working env is a throwaway venv at
-  `apps/grading-cre/grader/.venv` built with `/opt/homebrew/bin/python3.12 -m venv .venv`.
-  It is named `.venv` ON PURPOSE so the repo-root `.gitignore` `.venv/` rule covers it. Do
-  NOT name it `.venv-lp` — that's not ignored and will show up untracked.
+- **demeter runs on BOTH Python 3.12 and 3.14 — it is NOT 3.12-only.** `pip install
+  zelos-demeter` (PyPI name; the import is `demeter`). CORRECTION to an earlier note in
+  this doc that said "needs 3.12 / errors on 3.14": the FULL LP harness (`verify_lp.py`,
+  all 5 checks, 4746/8806/10000) runs GREEN on python **3.14.3** — verified directly.
+  There are TWO working venvs on this machine:
+    - `apps/grading-cre/grader/.venv` -> **python3.12** (the local one, created at commit time).
+    - `/tmp/demeter-probe/bin/python` -> **python3.14** (the probe venv; `/tmp` is ephemeral).
+  Either scores identically. The repo `.gitignore` now has `.venv*/` so any `.venv*` name is
+  ignored — but keep it `.venv` for the root `.venv/` rule too. (`analysis/.venv` is a
+  separate env with NO demeter — useless for LP.) For the enclave image, base on 3.12 OR
+  3.14; do not block on a 3.12 base.
 - **grade.ts shells literal `"python3"` from PATH** (not a configurable interpreter). So for
   LP you MUST prepend `.venv/bin` to PATH at call time, or it'll grab system 3.14 and fail.
 - **LP private data window:** `pool_private.csv` = WETH/USDC, **72 hourly bars**, the run
