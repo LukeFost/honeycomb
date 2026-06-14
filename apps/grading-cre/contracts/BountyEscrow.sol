@@ -62,6 +62,7 @@ contract BountyEscrow is IReceiver {
         address token; // reward token snapshot
         bytes32 testsHash; // commitment to PRIVATE tests + rubric
         string specCid; // PUBLIC spec / tests
+        address attesterKey; // execution enclave's signer (ecrecover target for scores)
         // --- live leaderboard: best VALID grade so far ---
         uint256 bestAgentId; // ERC-8004 agentId of current leader (0 = none)
         uint16 bestScore; // execution score 0..10000
@@ -140,9 +141,11 @@ contract BountyEscrow is IReceiver {
         uint256 budget,
         uint64 expiredAt,
         bytes32 testsHash,
-        string calldata specCid
+        string calldata specCid,
+        address attesterKey
     ) external returns (uint256 jobId) {
         require(budget > 0 && expiredAt > block.timestamp, "bad params");
+        require(attesterKey != address(0), "no attester");
         address token = rewardToken;
         jobId = nextJobId++;
         Job storage j = jobs[jobId];
@@ -155,6 +158,7 @@ contract BountyEscrow is IReceiver {
         j.token = token;
         j.testsHash = testsHash;
         j.specCid = specCid;
+        j.attesterKey = attesterKey;
         require(IERC20(token).transferFrom(msg.sender, address(this), budget), "fund failed");
         emit JobCreated(jobId, msg.sender, token, budget, expiredAt, testsHash, specCid);
     }
@@ -172,10 +176,12 @@ contract BountyEscrow is IReceiver {
                 uint256 agentId,
                 uint16 score,
                 bool valid,
-                bytes32 scoreAtt,
-                bytes32 validityAtt
-            ) = abi.decode(data, (uint256, uint256, uint16, bool, bytes32, bytes32));
-            _recordGrade(jobId, agentId, score, valid, scoreAtt, validityAtt);
+                bytes32 validityAtt,
+                uint8 v,
+                bytes32 r,
+                bytes32 s
+            ) = abi.decode(data, (uint256, uint256, uint16, bool, bytes32, uint8, bytes32, bytes32));
+            _recordGrade(jobId, agentId, score, valid, validityAtt, v, r, s);
         } else if (action == ACTION_RESOLVE) {
             uint256 jobId = abi.decode(data, (uint256));
             _resolve(jobId);
@@ -189,8 +195,10 @@ contract BountyEscrow is IReceiver {
         uint256 agentId,
         uint16 score,
         bool valid,
-        bytes32 scoreAtt,
-        bytes32 validityAtt
+        bytes32 validityAtt,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
     ) internal {
         Job storage j = jobs[jobId];
         require(j.client != address(0), "no job");
@@ -198,17 +206,25 @@ contract BountyEscrow is IReceiver {
         // Grading window = contest + SETTLE_GRACE (covers grading latency). Stops
         // grades being inserted arbitrarily late to snipe a result post-contest.
         require(block.timestamp <= j.expiredAt + SETTLE_GRACE, "grading closed");
+
+        // FIX #2: the score must be SIGNED by this bounty's execution enclave. The
+        // signed digest binds (jobId, agentId, score) so the score can't be lied
+        // about, replayed onto another job/agent, or forged by a non-enclave caller.
+        bytes32 scoreDigest = keccak256(abi.encode(jobId, agentId, uint256(score)));
+        require(ecrecover(scoreDigest, v, r, s) == j.attesterKey, "bad enclave score sig");
+
         j.gradeCount += 1;
 
         // effective = valid ? score : 0  → only valid grades can take the lead.
+        // (validity is the AI attestor's domain; the enclave signs only the score.)
         bool newLeader = valid && agentId != 0 && (j.bestAgentId == 0 || score > j.bestScore);
         if (newLeader) {
             j.bestAgentId = agentId;
             j.bestScore = score;
-            j.bestScoreAtt = scoreAtt;
+            j.bestScoreAtt = scoreDigest;
             j.bestValidityAtt = validityAtt;
         }
-        emit GradeRecorded(jobId, agentId, score, valid, scoreAtt, validityAtt, newLeader);
+        emit GradeRecorded(jobId, agentId, score, valid, scoreDigest, validityAtt, newLeader);
     }
 
     function _resolve(uint256 jobId) internal {

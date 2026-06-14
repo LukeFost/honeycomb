@@ -59,6 +59,7 @@ export type Config = {
 	fee: number; // pinned execution-path V3 fee (500 / 3000 / 10000)
 	amountIn: string; // raw tokenIn units
 	slippageTolerance: number; // % sent to the API (e.g. 0.5)
+	protocols: string[]; // which Uniswap protocols to quote over (e.g. ["V3"] to match our V3 exec)
 	deadlineSeconds: number; // swap deadline horizon from now
 	gasLimit: string;
 	strategyId: string; // -> artifactHash = keccak256(strategyId)
@@ -131,7 +132,7 @@ export const onTick = (runtime: Runtime<Config>): string => {
 			tokenOut: cfg.tokenOut,
 			swapper: cfg.vault,
 			slippageTolerance: cfg.slippageTolerance,
-			protocols: ["V2", "V3", "V4"],
+			protocols: cfg.protocols,
 		};
 		const resp = sendRequester
 			.sendRequest({

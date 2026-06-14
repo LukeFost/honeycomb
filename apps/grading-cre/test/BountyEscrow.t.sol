@@ -23,7 +23,8 @@ contract BountyEscrowTest {
             50000000,
             1781385396,
             0xc6affbccf99689cc5bec6b820620ce730dffb446e47daeb6c455b10970b64661,
-            "honeycomb://uniswap-lp-trading-bot/spec.md"
+            "honeycomb://uniswap-lp-trading-bot/spec.md",
+            address(0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F)
         );
     }
 }
