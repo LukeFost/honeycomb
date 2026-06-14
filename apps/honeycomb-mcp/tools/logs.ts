@@ -87,11 +87,13 @@ export type ReadLogsArgs = {
 const SEVERITIES = ["DEFAULT", "DEBUG", "INFO", "NOTICE", "WARNING", "ERROR", "CRITICAL", "ALERT", "EMERGENCY"];
 
 // Secret-scrubbing for the PUBLIC /logs route. Each pattern targets a SECRET
-// shape, not public data: we deliberately keep 40-hex wallet addresses and 64-hex
-// tx hashes visible (they're on-chain) and only kill things that grant access.
-// Order matters a little — URL-embedded keys first, then header tokens, then bare
-// long hex that looks like a private key (66 incl. 0x, or 64 bare — distinct from
-// a 40-hex address). Replacement keeps enough context to read the line.
+// shape, not public data: we deliberately keep 40-hex wallet addresses visible
+// (they're on-chain) and only kill things that grant access. A 64-hex run is the
+// one ambiguous case — a private key AND a tx/block hash are both 32 bytes — so we
+// scrub it: leaking a key is catastrophic, losing a hash from a log line is not.
+// Order matters — URL-embedded keys first, then header tokens, then 64-hex blobs,
+// then the multi-word mnemonic, then the generic KEY=VALUE catch-all. Replacement
+// keeps enough context to read the line.
 const REDACTIONS: Array<[RegExp, string]> = [
 	// RPC / API URLs with the key in the PATH: .../v2/<key>, .../v3/<key>, infura, etc.
 	// Keep host + version segment, drop the trailing key. Covers http(s) AND ws(s)
@@ -103,13 +105,28 @@ const REDACTIONS: Array<[RegExp, string]> = [
 	[/(\b[Bb]earer\s+)[A-Za-z0-9._\-+/=]{8,}/g, "$1<redacted>"],
 	[/("?[Aa]uthorization"?\s*[:=]\s*"?)(?:[Bb]earer\s+)?[A-Za-z0-9._\-+/=]{8,}/g, "$1<redacted>"],
 	// A private key shape: 0x + 64 hex, or a bare 64-hex run. A wallet address is
-	// 40 hex, so this {64} length specifically targets keys, not addresses.
-	[/\b0x[0-9a-fA-F]{64}\b/g, "0x<redacted-32-bytes>"],
-	[/\b[0-9a-fA-F]{64}\b/g, "<redacted-32-bytes>"],
+	// 40 hex, so this {64} length specifically targets keys, not addresses. We use
+	// lookarounds instead of \b to require the run is EXACTLY 64 hex and not a slice
+	// of a longer hex blob (a 33-byte+ value, or a tx-data dump) — a 65th hex digit
+	// on either side means it isn't a 32-byte key, so we leave it alone to avoid
+	// mangling legitimate long hex. Residual (accepted): a key fused letter-to-letter
+	// into surrounding text with NO delimiter AND a hex letter immediately adjacent
+	// (…E<64hex>…) is missed, because that adjacency reads as one longer run. This
+	// shape does not occur in Cloud Run logs (lines are whitespace/JSON delimited);
+	// the env dumps / JSON fields / "0x"-prefixed forms that DO occur are all caught.
+	[/0x[0-9a-fA-F]{64}(?![0-9a-fA-F])/g, "0x<redacted-32-bytes>"],
+	[/(?<![0-9a-fA-Fx])[0-9a-fA-F]{64}(?![0-9a-fA-F])/g, "<redacted-32-bytes>"],
+	// A BIP-39 mnemonic / seed phrase IS a private key (it derives the whole wallet),
+	// and its value is space-separated words — so the generic KEY=VALUE rule below
+	// (which stops the value at the first space) would leak words 2..N. Capture the
+	// whole run of lowercase words after a mnemonic/seed-phrase label. Matched BEFORE
+	// the generic KV rule so the label isn't half-consumed.
+	[/("?\b(?:mnemonic|seed[_-]?phrase|recovery[_-]?phrase)"?\s*[:=]\s*"?)[a-z0-9]+(?:[\s,]+[a-z0-9]+){5,}/gi, "$1<redacted>"],
 	// Anything that names itself a secret/key in a KEY=VALUE / "key": "value" pair.
 	// Case-insensitive so both an env dump (INFERENCE_API_KEY=...) and a JSON field
 	// ("password":"...") are caught; quoted-key form is handled by the optional "?.
-	[/("?\b\w*(?:private[_-]?key|secret|api[_-]?key|token|password)\w*"?\s*[:=]\s*"?)[^\s",}]+/gi, "$1<redacted>"],
+	// "mnemonic"/"seedphrase" are also listed here to catch the single-token forms.
+	[/("?\b\w*(?:private[_-]?key|secret|api[_-]?key|token|password|mnemonic|seed[_-]?phrase|passphrase)\w*"?\s*[:=]\s*"?)[^\s",}]+/gi, "$1<redacted>"],
 ];
 
 /** Scrub secrets out of a log line before it leaves this module. */
