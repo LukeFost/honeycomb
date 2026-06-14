@@ -62,13 +62,16 @@ if [ "$MODE" = "tail" ]; then
 		--project="$PROJECT" --region="${HONEYCOMB_REGION:-us-central1}"
 fi
 
-# read mode: a bounded historical pull, newest first, then exit.
-FILTER="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$SERVICE\" AND timestamp>=\"-${FRESHNESS}\""
+# read mode: a bounded historical pull, newest first, then exit. The time window is
+# `--freshness` (gcloud's own relative-age flag, e.g. 30m/2h/1d) — NOT a timestamp>=
+# clause, which gcloud rejects alongside --freshness; the filter stays timestamp-free.
+FILTER="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$SERVICE\""
 if [ -n "$SEVERITY" ]; then
 	FILTER="$FILTER AND severity>=${SEVERITY}"
 fi
 exec gcloud logging read "$FILTER" \
 	--project="$PROJECT" \
+	--freshness="$FRESHNESS" \
 	--order=desc \
 	--limit="${HONEYCOMB_LOG_LIMIT:-100}" \
 	--format="table(timestamp, severity, textPayload, jsonPayload.message)"
