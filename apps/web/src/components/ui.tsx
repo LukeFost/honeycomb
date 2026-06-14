@@ -66,6 +66,39 @@ export function Hex({ size = 28 }: { size?: number }) {
   );
 }
 
+/** The Honeycomb bee mark — a honeycomb-hexagon body with stripes, eyes, and wings, matching the
+ *  vector bee animated on the splash page (app/components/BeeScene.tsx): amber body (#EFA92E),
+ *  dark detail (#23262d). Drop-in replacement for <Hex /> as the brand logo. */
+export function Bee({ size = 28 }: { size?: number }) {
+  const body = "24,16 20,22.93 12,22.93 8,16 12,9.07 20,9.07";
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <defs>
+        <clipPath id="hc-bee-body">
+          <polygon points={body} />
+        </clipPath>
+      </defs>
+      {/* wings (behind the body) */}
+      <g fill="rgba(35,38,45,0.05)" stroke="rgba(35,38,45,0.45)" strokeWidth={0.7}>
+        <ellipse cx="5.76" cy="-1.76" rx="4.96" ry="2.24" transform="translate(19.36 15.68) rotate(3.4)" />
+        <ellipse cx="-5.76" cy="-1.76" rx="4.96" ry="2.24" transform="translate(12.64 15.68) rotate(-3.4)" />
+      </g>
+      {/* hexagon body */}
+      <polygon points={body} fill="#EFA92E" stroke="#23262d" strokeWidth={1.12} strokeLinejoin="round" />
+      {/* stripes, clipped to the body */}
+      <g clipPath="url(#hc-bee-body)" fill="#23262d">
+        <rect x="8" y="16.96" width="16" height="1.6" />
+        <rect x="8" y="19.76" width="16" height="1.6" />
+      </g>
+      {/* eyes */}
+      <g fill="#23262d">
+        <circle cx="13.6" cy="12.64" r="0.9" />
+        <circle cx="18.4" cy="12.64" r="0.9" />
+      </g>
+    </svg>
+  );
+}
+
 export function Card({
   children,
   className,
@@ -105,7 +138,7 @@ export function Chip({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium",
         tones[tone],
         className,
       )}

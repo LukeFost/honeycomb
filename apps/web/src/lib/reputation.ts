@@ -14,7 +14,7 @@ import {
   selectValidationsSql,
   selectSettlementsSql,
 } from "./bq";
-import { loadSnapshot } from "./snapshot";
+import { loadSnapshot, type TrustAgent, type TrustCategory } from "./snapshot";
 import { cached } from "./cache";
 
 export type BountyStatus = "settled" | "open";
@@ -55,10 +55,18 @@ export type AgentReputation = {
   validAttestationRate: number;
   valueWonEth: number;
   honeycombScore: number | null; // earned signal — null until first win
-  globalTrust: number | null; // ERC-8004 cold-start prior
+  globalTrust: number | null; // ERC-8004 cold-start prior (= the directory's Trust score)
   effectiveScore: number; // earned, else demoted global, else 0
   basis: RepBasis;
   flags: string[];
+  // ERC-8004 trust-directory facets, folded into each leaderboard row so the dashboard needs
+  // a single agent table. null/empty for market-only agents that have no on-chain feedback yet.
+  rawFeedback: number | null; // raw feedback mean, before the sybil discount (avg_score)
+  uniqueClients: number | null; // distinct feedback reviewers
+  independentClients: number | null; // independent (non-ring) feedback reviewers
+  x402: boolean;
+  services: string[];
+  category: TrustCategory | null; // organic | thin | sybil
 };
 
 export type CategoryStat = { name: string; total: number; open: number; rewardEth: number };
@@ -171,9 +179,11 @@ async function buildMarket(): Promise<Market> {
     return b;
   });
 
-  // global ERC-8004 trust score (live from BigQuery), for the cold-start prior
-  const globalTrust = new Map<number, number>();
-  for (const a of snap.agents) globalTrust.set(a.agentId, a.trustScore);
+  // ERC-8004 trust directory (live from BigQuery): the trust score is the cold-start prior, and
+  // the rest (raw feedback, reviewers, services, sybil category) is folded into each leaderboard
+  // row so the dashboard renders one unified agent table instead of a separate directory.
+  const trustByAgent = new Map<number, TrustAgent>();
+  for (const a of snap.agents) trustByAgent.set(a.agentId, a);
 
   // index submissions, wins (settlements), validations by agent
   const subsByAgent = new Map<number, SubmissionRow[]>();
@@ -221,7 +231,8 @@ async function buildMarket(): Promise<Market> {
       );
     }
 
-    const gt = globalTrust.get(agentId) ?? null;
+    const ta = trustByAgent.get(agentId) ?? null;
+    const gt = ta?.trustScore ?? null;
     let effectiveScore: number;
     let basis: RepBasis;
     if (honeycombScore != null) {
@@ -258,6 +269,12 @@ async function buildMarket(): Promise<Market> {
       effectiveScore,
       basis,
       flags,
+      rawFeedback: ta?.avgScore ?? null,
+      uniqueClients: ta?.uniqueClients ?? null,
+      independentClients: ta?.independentClients ?? null,
+      x402: ta?.x402 ?? false,
+      services: ta?.services ?? [],
+      category: ta?.category ?? null,
     };
   });
 

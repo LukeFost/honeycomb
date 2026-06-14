@@ -85,7 +85,9 @@ export default function BeeScene({
 
     const state = {
       phase: "sleep" as "sleep" | "running",
-      tapTime: 0,
+      storyTime: 0, // ms of story elapsed; advances by frameDelta * speed
+      speed: 1, // story speed multiplier — tapping the running scene speeds it up
+      lastNow: 0,
       firedSettle: false,
       lastCaption: -1,
     };
@@ -299,8 +301,11 @@ export default function BeeScene({
     let raf = 0;
 
     function frame(now: number) {
-      const since = state.phase === "running" ? now - state.tapTime : 0;
       const running = state.phase === "running";
+      const dt = now - state.lastNow;
+      state.lastNow = now;
+      if (running) state.storyTime += dt * state.speed;
+      const since = running ? state.storyTime : 0;
 
       const cp = captionPhase(since);
       if (cp !== state.lastCaption) {
@@ -374,16 +379,22 @@ export default function BeeScene({
       raf = requestAnimationFrame(frame);
     }
 
-    // --- tap to wake ----------------------------------------------------------
+    // --- tap to wake, then tap again to fast-forward --------------------------
     function onPointerDown(e: PointerEvent) {
-      if (state.phase !== "sleep") return;
-      const rect = canvas!.getBoundingClientRect();
-      const dx = e.clientX - rect.left - hero.pos.x;
-      const dy = e.clientY - rect.top - hero.pos.y;
-      if (Math.hypot(dx, dy) < HERO_R * 2.4) {
-        state.phase = "running";
-        state.tapTime = performance.now();
+      if (state.phase === "sleep") {
+        const rect = canvas!.getBoundingClientRect();
+        const dx = e.clientX - rect.left - hero.pos.x;
+        const dy = e.clientY - rect.top - hero.pos.y;
+        if (Math.hypot(dx, dy) < HERO_R * 2.4) {
+          state.phase = "running";
+          state.storyTime = 0;
+          state.speed = 1;
+          state.lastNow = performance.now();
+        }
+        return;
       }
+      // Already running: each tap accelerates the story so the CTAs land sooner.
+      if (!state.firedSettle) state.speed = Math.min(state.speed * 2.5, 16);
     }
 
     resize();
@@ -394,10 +405,11 @@ export default function BeeScene({
 
     if (reduce) {
       state.phase = "running";
-      state.tapTime = performance.now() - (SETTLE + 1000);
+      state.storyTime = SETTLE + 1000;
       for (const o of others) o.alpha = OTHER_ALPHA;
     }
 
+    state.lastNow = performance.now();
     raf = requestAnimationFrame(frame);
 
     return () => {

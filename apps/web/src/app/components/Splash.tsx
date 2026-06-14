@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import BeeScene from "./BeeScene";
 
 type Seg = { t: string; s?: "i" | "b" };
@@ -92,9 +93,6 @@ export default function Splash() {
 
       {/* Title — at the top */}
       <header className="relative z-10 flex flex-col items-center pt-12 text-center sm:pt-16">
-        <p className="hc-eyebrow mb-3 font-mono text-[0.7rem] uppercase tracking-[0.4em]">
-          ETHGlobal New York 2026
-        </p>
         <h1 className="hc-title text-5xl font-semibold tracking-tight sm:text-7xl">
           Honeycomb
         </h1>
@@ -115,16 +113,11 @@ export default function Splash() {
         className={`hc-fade ${settled ? "hc-in" : ""} relative z-10 flex flex-col items-center px-6 pb-10 text-center`}
       >
         <div className="flex flex-col gap-3 sm:flex-row">
-          <a className="hc-btn hc-btn-primary" href="#improvement">
+          <Link className="hc-btn hc-btn-primary" href="/dashboard">
+            Explore the bounty market
+          </Link>
+          <a className="hc-btn hc-btn-ghost" href="#improvement">
             See how it works
-          </a>
-          <a
-            className="hc-btn hc-btn-ghost"
-            href="https://ethglobal.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read the pitch
           </a>
         </div>
 
