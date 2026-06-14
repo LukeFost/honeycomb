@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "honeycomb": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["apps/honeycomb-mcp/run-with-secrets.sh"],
+      "env": {}
+    }
+  }
+}
