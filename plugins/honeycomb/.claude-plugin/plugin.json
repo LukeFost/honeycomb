@@ -1,0 +1,47 @@
+{
+  "name": "honeycomb",
+  "version": "0.1.0",
+  "description": "Thin Claude Code client for the Honeycomb bounty lifecycle: create/fund bounties on Sepolia, monitor grading + settlement, read ERC-8004 reputation, and grade submissions via the TEE grader. Ships a stdio MCP shim that forwards to a hosted honeycomb-api over HTTP.",
+  "author": {
+    "name": "Honeycomb"
+  },
+  "keywords": [
+    "honeycomb",
+    "bounty",
+    "erc-8004",
+    "erc-8183",
+    "sepolia",
+    "tee",
+    "grader",
+    "reputation",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": {
+    "honeycomb": {
+      "command": "bun",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/shim.ts"
+      ],
+      "env": {
+        "HONEYCOMB_API_URL": "${user_config.honeycomb_api_url}",
+        "HONEYCOMB_API_TOKEN": "${user_config.honeycomb_write_token}"
+      }
+    }
+  },
+  "userConfig": {
+    "honeycomb_api_url": {
+      "type": "string",
+      "required": true,
+      "title": "Honeycomb API URL",
+      "description": "Base URL of the hosted honeycomb-api this plugin talks to, e.g. https://api.honeycomb.example or http://localhost:8787"
+    },
+    "honeycomb_write_token": {
+      "type": "string",
+      "sensitive": true,
+      "required": false,
+      "title": "Honeycomb write token",
+      "description": "Bearer token for write routes (create_bounty, grade_submission). Leave blank for read-only use."
+    }
+  }
+}
