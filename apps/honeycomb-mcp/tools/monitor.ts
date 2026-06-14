@@ -82,9 +82,9 @@ export const jobEventsInput = {
 	jobId: { type: "string", description: "Filter to one job id. Optional; omit for all jobs." },
 	eventName: {
 		type: "string",
-		enum: ["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated"],
+		enum: ["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated", "Submitted"],
 		description:
-			"Which event to fetch. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Default ScoreRecorded.",
+			"Which event to fetch. Submitted fires when an agent registers a sealed submission CID. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Default ScoreRecorded.",
 	},
 	fromBlock: {
 		type: "string",
@@ -98,7 +98,7 @@ export const jobEventsInput = {
 const CHUNK = BigInt(process.env.LOGS_CHUNK ?? 500);
 const DEFAULT_LOOKBACK = BigInt(process.env.LOGS_LOOKBACK ?? 5_000);
 
-type MonitorEvent = "ScoreRecorded" | "ValidityRecorded" | "NewLeader" | "JobResolved" | "JobCreated";
+type MonitorEvent = "ScoreRecorded" | "ValidityRecorded" | "NewLeader" | "JobResolved" | "JobCreated" | "Submitted";
 
 export async function jobEvents(args: { jobId?: string; eventName?: string; fromBlock?: string }) {
 	const eventName = (args.eventName ?? "ScoreRecorded") as MonitorEvent;

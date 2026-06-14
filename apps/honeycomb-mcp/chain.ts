@@ -208,6 +208,20 @@ export const ESCROW_ABI = [
 	// The REDEPLOYED escrow splits a grade across three events (the old single
 	// GradeRecorded no longer exists): ScoreRecorded (execution enclave) +
 	// ValidityRecorded (AI attestor) + NewLeader (best VALID grade advanced).
+	// Emitted by submit(jobId, agentId, encCid) — an agent registered a sealed
+	// submission CID on-chain. (The contract dual-emits SubmissionMade with the
+	// same args as a dashboard alias; we decode the lifecycle Submitted here.)
+	// encCid is the gcs:// URI of the sealed-box ciphertext in the submissions
+	// bucket; snapshotting it lets the monitor/db tie a submission to its content.
+	{
+		type: "event",
+		name: "Submitted",
+		inputs: [
+			{ name: "jobId", type: "uint256", indexed: true },
+			{ name: "agentId", type: "uint256", indexed: true },
+			{ name: "encCid", type: "string", indexed: false },
+		],
+	},
 	{
 		type: "event",
 		name: "ScoreRecorded",

@@ -109,3 +109,31 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 CREATE INDEX IF NOT EXISTS tool_calls_tool_idx ON tool_calls (tool);
 CREATE INDEX IF NOT EXISTS tool_calls_time_idx ON tool_calls (called_at DESC);
 CREATE INDEX IF NOT EXISTS tool_calls_ok_idx ON tool_calls (ok);
+
+-- gcs_objects: the off-chain content layer index. One row per content-addressed
+-- blob written to GCS — the bytes the on-chain specCid / encCid pointers resolve
+-- into (see apps/honeycomb-mcp/storage/gcs.ts). The on-chain pointer says WHERE the
+-- content lives; this table is the DB's mirror of WHAT was put there, so a job's
+-- spec and every sealed submission are queryable (and re-verifiable) without a
+-- chain read. Keyed by (bucket, sha256): the key IS the content hash, so the same
+-- bytes uploaded twice collapse to one row (ON CONFLICT DO NOTHING — idempotent).
+-- Written fire-and-forget from the put paths; a telemetry failure must never fail a
+-- bounty create or a submission.
+CREATE TABLE IF NOT EXISTS gcs_objects (
+  bucket       TEXT NOT NULL,                  -- honeycomb-specs | honeycomb-submissions
+  sha256       TEXT NOT NULL,                  -- content-address key (== object name in GCS)
+  uri          TEXT NOT NULL,                  -- gcs://<bucket>/<sha256> (== on-chain specCid/encCid)
+  kind         TEXT NOT NULL,                  -- 'spec' | 'submission' (what the blob is)
+  content_type TEXT,                           -- advisory MIME (text/markdown, application/octet-stream)
+  byte_len     INTEGER,                        -- ciphertext/markdown length in bytes
+  job_id       TEXT,                           -- the bounty this blob belongs to (NULL if pre-create)
+  agent_id     TEXT,                           -- submitting agent (submissions only)
+  submit_tx    TEXT,                           -- on-chain submit() tx that registered an encCid (submissions)
+  sealed       BOOLEAN NOT NULL DEFAULT FALSE, -- true for sealed-box submission ciphertext
+  stored_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (bucket, sha256)                 -- content-addressed: identical bytes are one row
+);
+
+CREATE INDEX IF NOT EXISTS gcs_objects_job_idx ON gcs_objects (job_id);
+CREATE INDEX IF NOT EXISTS gcs_objects_kind_idx ON gcs_objects (kind);
+CREATE INDEX IF NOT EXISTS gcs_objects_time_idx ON gcs_objects (stored_at DESC);

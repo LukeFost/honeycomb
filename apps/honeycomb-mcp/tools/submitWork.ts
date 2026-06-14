@@ -35,6 +35,7 @@ import {
 } from "../chain.ts";
 import { putContent, SUBMISSIONS_BUCKET } from "../storage/gcs.ts";
 import { sealToPub } from "../storage/seal.ts";
+import { recordGcsObject } from "../db/snapshot.ts";
 import { gradeSubmission } from "./grade.ts";
 import { getJob } from "./monitor.ts";
 
@@ -258,6 +259,20 @@ async function sealAndRegister(p: {
 		args: [BigInt(p.jobId), BigInt(p.agentId), encCid],
 	});
 	await publicClient.waitForTransactionReceipt({ hash: submitTx });
+
+	// Index the sealed submission in the DB content layer: encCid -> GCS object,
+	// linked to the job/agent and the submit() tx that registered it on-chain.
+	// Fire-and-forget: a telemetry write must never fail a confirmed submission.
+	void recordGcsObject({
+		uri: encCid,
+		kind: "submission",
+		contentType: "application/octet-stream",
+		byteLen: sealed.length,
+		jobId: p.jobId,
+		agentId: p.agentId,
+		submitTx,
+		sealed: true,
+	});
 
 	return { encCid, submitTx };
 }

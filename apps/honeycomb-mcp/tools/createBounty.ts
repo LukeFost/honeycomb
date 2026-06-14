@@ -21,7 +21,8 @@ import {
 	publicClient,
 	walletFromEnv,
 } from "../chain.ts";
-import { putText, SPECS_BUCKET } from "../storage/gcs.ts";
+import { putText, SPECS_BUCKET, isGcsUri } from "../storage/gcs.ts";
+import { recordGcsObject } from "../db/snapshot.ts";
 
 // grading-cre root, resolved relative to this file (apps/honeycomb-mcp/tools -> apps/grading-cre).
 const GRADING_CRE = join(import.meta.dir, "..", "..", "grading-cre");
@@ -216,6 +217,18 @@ export async function broadcastBounty(cfg: BountyConfig) {
 		}
 	}
 	if (!jobId) throw new Error("JobCreated event not found in receipt");
+
+	// Index the spec blob in the DB content layer, now that we know the jobId it
+	// belongs to. Only when specCid is a real gcs:// object (a legacy honeycomb://
+	// pointer has no GCS bytes to index). Fire-and-forget: never fails the create.
+	if (isGcsUri(specCid)) {
+		void recordGcsObject({
+			uri: specCid,
+			kind: "spec",
+			contentType: "text/markdown",
+			jobId,
+		});
+	}
 
 	return {
 		jobId,

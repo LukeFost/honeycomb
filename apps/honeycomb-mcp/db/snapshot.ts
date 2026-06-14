@@ -24,6 +24,7 @@ import { listJobs, jobEvents } from "../tools/monitor.ts";
 
 const EVENT_NAMES = [
 	"JobCreated",
+	"Submitted",
 	"ScoreRecorded",
 	"ValidityRecorded",
 	"NewLeader",
@@ -149,6 +150,67 @@ export async function recordGrade(callback: Record<string, any>, bounty?: string
 		`;
 	} finally {
 		await sql.end();
+	}
+}
+
+// --- gcs_objects: index one off-chain content blob (spec / sealed submission) --
+// Mirror of a GCS put into the DB content-layer index. Called from the put paths
+// (createBounty spec upload, submitWork seal+upload) right after the bytes land in
+// the bucket. Parses the gcs://<bucket>/<sha256> URI for its key, so the caller only
+// has to hand over the URI it already got back from putContent/putText.
+//
+// Fire-and-forget by construction: this is telemetry, not the bounty itself. A
+// missing DATABASE_URL or a failed write must NEVER fail a create or a submit, so
+// every failure is swallowed here (logged to stderr) rather than raised. This is a
+// deliberate, narrowly-scoped exception to the loud-failure rule — same posture as
+// the tool_calls telemetry — and the swallowed error is still surfaced on stderr.
+export async function recordGcsObject(o: {
+	uri: string;
+	kind: "spec" | "submission";
+	contentType?: string;
+	byteLen?: number;
+	jobId?: string | number | null;
+	agentId?: string | number | null;
+	submitTx?: string | null;
+	sealed?: boolean;
+}) {
+	if (!process.env.DATABASE_URL) {
+		// No DB configured (e.g. local dev without the keychain secret). Skip quietly —
+		// the content is already in GCS and on-chain; the index is best-effort.
+		return;
+	}
+	let sql: SQL | null = null;
+	try {
+		// gcs://bucket/sha256 — pull the parts back out of the URI the put returned.
+		const m = /^gcs:\/\/([^/]+)\/(.+)$/.exec(o.uri.trim());
+		if (!m) throw new Error(`recordGcsObject: not a gcs:// URI: ${o.uri}`);
+		const [, bucket, sha256] = m;
+		sql = db();
+		await applySchema(sql); // idempotent; ensures gcs_objects exists on first call
+		await sql`
+			INSERT INTO gcs_objects (
+				bucket, sha256, uri, kind, content_type, byte_len,
+				job_id, agent_id, submit_tx, sealed
+			) VALUES (
+				${bucket}, ${sha256}, ${o.uri}, ${o.kind}, ${o.contentType ?? null}, ${o.byteLen ?? null},
+				${o.jobId != null ? String(o.jobId) : null},
+				${o.agentId != null ? String(o.agentId) : null},
+				${o.submitTx ?? null},
+				${o.sealed ?? o.kind === "submission"}
+			)
+			ON CONFLICT (bucket, sha256) DO UPDATE SET
+				-- same bytes can be re-seen for a job/agent we didn't know the first time
+				-- (e.g. spec uploaded pre-create, then linked at create). Backfill the link
+				-- fields without overwriting an existing value with null.
+				job_id    = COALESCE(EXCLUDED.job_id,    gcs_objects.job_id),
+				agent_id  = COALESCE(EXCLUDED.agent_id,  gcs_objects.agent_id),
+				submit_tx = COALESCE(EXCLUDED.submit_tx, gcs_objects.submit_tx)
+		`;
+	} catch (e) {
+		// Telemetry only — log and move on, never propagate.
+		console.error("recordGcsObject failed (non-fatal):", (e as Error)?.message ?? e);
+	} finally {
+		if (sql) await sql.end();
 	}
 }
 
