@@ -1,0 +1,23 @@
+{
+  "name": "honeycomb-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HTTP API over the Honeycomb bounty lifecycle. Same six functions as honeycomb-mcp, exposed as routes so a thin remote client (the installable plugin) can drive bounties without the grader venv or chain secrets.",
+  "bin": {
+    "honeycomb-api": "server.ts"
+  },
+  "scripts": {
+    "start": "bun server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@honeycomb/chain": "workspace:*",
+    "honeycomb-mcp": "workspace:*",
+    "viem": "^2.52.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -9,6 +9,9 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# scratch / regenerable review artifacts (e.g. /code-review output)
+.scratchpad/
+
 contracts/cache/
 contracts/out/
 contracts/broadcast/
@@ -38,5 +41,6 @@ goals/
 *-key.json
 gcp-key.json
 
-# machine-specific MCP launcher (reads secrets from keychain at start)
+# machine-specific launchers (read secrets from keychain at start)
 apps/honeycomb-mcp/run-with-secrets.sh
+apps/honeycomb-api/run-with-secrets.sh
