@@ -83,3 +83,29 @@ CREATE TABLE IF NOT EXISTS grades (
 
 CREATE INDEX IF NOT EXISTS grades_job_idx ON grades (job_id);
 CREATE INDEX IF NOT EXISTS grades_agent_idx ON grades (agent_id);
+
+-- tool_calls: append-only telemetry of every MCP tool invocation forwarded
+-- through honeycomb-api. One row per HTTP request the API handles (every plugin
+-- tool call lands here). Captures the FULL request body + response per the
+-- "log everything" decision — submission source and specs included, so this DB
+-- is a complete replay log. Written fire-and-forget; a telemetry failure must
+-- never fail the underlying call.
+CREATE TABLE IF NOT EXISTS tool_calls (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tool        TEXT NOT NULL,                  -- logical tool name (get_job, grade_submission, ...)
+  method      TEXT NOT NULL,                  -- HTTP method (GET/POST)
+  path        TEXT NOT NULL,                  -- request pathname (/jobs/1, /grade, ...)
+  query       JSONB,                          -- query params (read routes)
+  request     JSONB,                          -- full request body (write routes) — may hold submission source
+  response    JSONB,                          -- full response payload (or {error} on failure)
+  status      INTEGER NOT NULL,               -- HTTP status returned
+  ok          BOOLEAN NOT NULL,               -- status < 400
+  latency_ms  INTEGER NOT NULL,               -- wall-clock handler latency
+  caller      TEXT,                           -- x-honeycomb-caller / user-agent, best effort
+  remote_addr TEXT,                           -- client IP if surfaced by the runtime
+  called_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS tool_calls_tool_idx ON tool_calls (tool);
+CREATE INDEX IF NOT EXISTS tool_calls_time_idx ON tool_calls (called_at DESC);
+CREATE INDEX IF NOT EXISTS tool_calls_ok_idx ON tool_calls (ok);

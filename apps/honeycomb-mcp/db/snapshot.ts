@@ -140,23 +140,31 @@ export async function recordGrade(callback: Record<string, any>, bounty?: string
 	}
 }
 
+// Run one full snapshot (schema + jobs upsert + events append) against a fresh
+// connection and return the counts. Exported so the always-on honeycomb-api can
+// trigger it in-process via POST /snapshot (Cloud Scheduler), independent of any
+// laptop or Claude session. Opens and closes its own connection each call.
+export async function runSnapshot(opts: { jobsLimit?: number; lookback?: string } = {}) {
+	if (opts.lookback) process.env.LOGS_LOOKBACK = opts.lookback;
+	const sql = db();
+	try {
+		await applySchema(sql);
+		const jobsUpserted = await upsertJobs(sql, opts.jobsLimit ?? 25);
+		const newEvents = await appendEvents(sql);
+		return { ok: true as const, jobsUpserted, newEvents };
+	} finally {
+		await sql.end();
+	}
+}
+
 async function main() {
 	const argv = process.argv.slice(2);
 	const jobsLimit = Number(argv[argv.indexOf("--jobs") + 1]) || 25;
 	const lookbackArg = argv.indexOf("--lookback") >= 0 ? argv[argv.indexOf("--lookback") + 1] : undefined;
 	// jobEvents takes fromBlock as an absolute block; --lookback is a convenience for
 	// "tip minus N", which jobEvents already does by default, so just pass through env.
-	if (lookbackArg) process.env.LOGS_LOOKBACK = lookbackArg;
-
-	const sql = db();
-	try {
-		await applySchema(sql);
-		const jobsWritten = await upsertJobs(sql, jobsLimit);
-		const eventsWritten = await appendEvents(sql);
-		console.log(JSON.stringify({ ok: true, jobsUpserted: jobsWritten, newEvents: eventsWritten }));
-	} finally {
-		await sql.end();
-	}
+	const result = await runSnapshot({ jobsLimit, lookback: lookbackArg });
+	console.log(JSON.stringify(result));
 }
 
 if (import.meta.main) {

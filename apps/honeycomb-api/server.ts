@@ -35,6 +35,8 @@ import { getJob, listJobs, jobEvents } from "../honeycomb-mcp/tools/monitor.ts";
 import { queryReputation } from "../honeycomb-mcp/tools/reputation.ts";
 import { gradeSubmission } from "../honeycomb-mcp/tools/grade.ts";
 import { submitWork } from "../honeycomb-mcp/tools/submitWork.ts";
+import { runSnapshot } from "../honeycomb-mcp/db/snapshot.ts";
+import { record as recordToolCall } from "../honeycomb-mcp/db/telemetry.ts";
 
 const PORT = Number(process.env.PORT ?? process.env.HONEYCOMB_API_PORT ?? 8787);
 // Bind loopback by default — the write routes broadcast funded txs and spawn the
@@ -225,20 +227,108 @@ async function route(req: Request): Promise<Response> {
 		return json(await submitWork(b as Parameters<typeof submitWork>[0]));
 	}
 
+	// Snapshot the live chain into Neon (jobs upsert + events append). Triggered
+	// on a schedule by Cloud Scheduler against this always-on instance, so the
+	// chain data records continuously without any laptop or Claude session. Reads
+	// only public chain state, but writes to the DB, so it's behind the write
+	// token to keep it from being spammed. Needs DATABASE_URL (snapshot throws if
+	// unset). ?jobs=N&lookback=N override the defaults.
+	if (m === "POST" && pathname === "/snapshot") {
+		requireWriteAuth(req);
+		const jobsLimit = numParam(url, "jobs");
+		const lookback = url.searchParams.get("lookback") ?? undefined;
+		return json(await runSnapshot({ jobsLimit, lookback }));
+	}
+
 	return fail(`no route for ${m} ${pathname}`, 404);
 }
 
+// Derive a stable logical tool name for telemetry from method+pathname, so the
+// tool_calls.tool column reads like the MCP tool surface (get_job, list_jobs,
+// grade_submission, ...) rather than raw HTTP paths.
+function toolName(method: string, pathname: string): string {
+	if (pathname === "/") return "health";
+	if (pathname === "/skill") return "get_skill";
+	if (pathname === "/jobs") return "list_jobs";
+	if (/^\/jobs\/[^/]+$/.test(pathname)) return "get_job";
+	if (pathname === "/events") return "job_events";
+	if (pathname === "/reputation") return "query_reputation";
+	if (pathname === "/bounties") return "create_bounty";
+	if (/^\/bounties\/[^/]+\/resolve-early$/.test(pathname)) return "resolve_early";
+	if (pathname === "/grade") return "grade_submission";
+	if (pathname === "/submit") return "submit_work";
+	if (pathname === "/snapshot") return "snapshot";
+	return `${method} ${pathname}`;
+}
+
 // --- boot -------------------------------------------------------------------
+// Parse a JSON string into an object for telemetry, tolerating non-JSON bodies.
+function parseBodyForLog(text: string): unknown {
+	if (!text.trim()) return undefined;
+	try {
+		return JSON.parse(text);
+	} catch {
+		return { raw: text.slice(0, 2000) };
+	}
+}
+
 Bun.serve({
 	port: PORT,
 	hostname: HOST,
 	idleTimeout: 255, // grading + on-chain settle can run long; max bun allows
-	async fetch(req) {
-		try {
-			return await route(req);
-		} catch (err) {
-			return fail(err, err instanceof HttpError ? err.status : 500);
+	async fetch(req, server) {
+		const url = new URL(req.url);
+		const startedNs = Bun.nanoseconds();
+		// Read the request body off a CLONE so route()'s own body() read still works
+		// (a Request body is single-use). Best-effort: a failed clone/read just leaves
+		// the logged body undefined — never blocks the real request.
+		let reqBodyText = "";
+		if (req.method !== "GET" && req.method !== "HEAD") {
+			try {
+				reqBodyText = await req.clone().text();
+			} catch {
+				/* body unavailable for logging; proceed */
+			}
 		}
+
+		let res: Response;
+		try {
+			res = await route(req);
+		} catch (err) {
+			res = fail(err, err instanceof HttpError ? err.status : 500);
+		}
+
+		// Telemetry: capture the response body off a clone, then record fire-and-forget.
+		// Nothing here is awaited into the response path — the client gets `res` either
+		// way, and a telemetry failure is swallowed inside record().
+		try {
+			const latencyMs = (Bun.nanoseconds() - startedNs) / 1e6;
+			const query = Object.fromEntries(url.searchParams.entries());
+			res
+				.clone()
+				.text()
+				.then((resText) => {
+					recordToolCall({
+						tool: toolName(req.method, url.pathname),
+						method: req.method,
+						path: url.pathname,
+						query: Object.keys(query).length ? query : null,
+						request: parseBodyForLog(reqBodyText),
+						response: parseBodyForLog(resText),
+						status: res.status,
+						latencyMs,
+						caller: req.headers.get("x-honeycomb-caller") ?? req.headers.get("user-agent"),
+						remoteAddr: server?.requestIP(req)?.address ?? null,
+					});
+				})
+				.catch(() => {
+					/* telemetry capture failed; swallow */
+				});
+		} catch {
+			/* telemetry setup failed; swallow */
+		}
+
+		return res;
 	},
 });
 

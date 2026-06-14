@@ -25,6 +25,18 @@
 import { existsSync, readFileSync } from "node:fs";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 
+import { recordGrade } from "../db/snapshot.ts";
+
+// Persist a grade to Neon (best-effort). recordGrade opens/closes its own
+// connection and throws on a DB error; we swallow that here so a persistence
+// hiccup never fails the actual grade. Disabled cleanly when DATABASE_URL unset.
+function persistGrade(callback: Record<string, any>, bounty?: string) {
+	if (!process.env.DATABASE_URL) return;
+	recordGrade(callback, bounty).catch((e) =>
+		console.error("[grade] recordGrade failed:", e?.message ?? e),
+	);
+}
+
 const GRADER_DIR = join(import.meta.dir, "..", "..", "grading-cre", "grader");
 const GRADE_TS = join(GRADER_DIR, "grade.ts");
 
@@ -75,7 +87,10 @@ export async function gradeSubmission(args: {
 	// does not produce; only its execution score+digest is replaced by the signed bundle.
 	const callback = await gradeLocal(args);
 
-	if (!GRADER_ENCLAVE_URL) return callback;
+	if (!GRADER_ENCLAVE_URL) {
+		persistGrade(callback, args.bounty);
+		return callback;
+	}
 
 	// Stage 2: re-grade execution in the warm TEE for a KMS-signed, on-chain-recomputable
 	// score digest. The enclave wants the submission SOURCE (it writes its own temp file),
@@ -91,7 +106,7 @@ export async function gradeSubmission(args: {
 	// content-commitment scoreAttestation. Validity stays from the local grader. We surface
 	// BOTH so a caller can see the local score for comparison, but the canonical on-chain
 	// fields (score, scoreDigest, signature) come from the TEE.
-	return {
+	const merged = {
 		...callback,
 		score: bundle.score,
 		scoreDigest: bundle.scoreDigest,
@@ -101,6 +116,8 @@ export async function gradeSubmission(args: {
 		localScore: callback.score,
 		localScoreAttestation: callback.scoreAttestation,
 	};
+	persistGrade(merged, args.bounty);
+	return merged;
 }
 
 // Stage 1: shell to grade.ts unchanged and parse its stdout callback JSON.
