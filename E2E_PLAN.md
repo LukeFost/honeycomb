@@ -1,14 +1,16 @@
 # Honeycomb — Big E2E Scope ("does it all work together?")
 
 Goal: drive one bounty through **every** component and prove the seams hold —
-MCP + HTTP API + grading pipeline (contract/CRE/grader) + BigQuery (both layers) +
-web dashboard + chain-verify. Written 2026-06-14 from a full repo sweep.
+plugin front door + HTTP API + grading pipeline (contract/CRE/grader) + BigQuery
+(both layers) + web dashboard + chain-verify. Written 2026-06-14 from a full repo
+sweep. (Updated: the standalone `honeycomb-mcp` stdio server was retired — one
+front door now, the plugin, forwarding to the API.)
 
 ## Components in scope
 | Component | Role | Run |
 |---|---|---|
-| `apps/honeycomb-mcp` | MCP stdio: create_bounty, get_job, list_jobs, job_events, query_reputation, grade_submission | `bun apps/honeycomb-mcp/server.ts` |
-| `apps/honeycomb-api` | Same 6 functions over HTTP (reuses mcp/tools) | `bun apps/honeycomb-api/server.ts` |
+| `plugins/honeycomb` | The ONE front door: stdio MCP shim forwarding the 6 tools (create_bounty, get_job, list_jobs, job_events, query_reputation, grade_submission) over HTTP | `/plugin install honeycomb@honeycomb`, point at the API |
+| `apps/honeycomb-api` | The ONE backend: those 6 functions over HTTP (imports `honeycomb-mcp/tools/*`, the shared engine) | `bun apps/honeycomb-api/server.ts` |
 | `apps/grading-cre` | BountyEscrow `0xce27EEDE` (ERC-8183) + CRE workflow + grader (demeter) | cast / `cre workflow simulate` |
 | `apps/web` | Dashboard: Layer-1 trust (live BQ) + Layer-2 market | `pnpm --filter web dev` |
 | `tools/chain-verify` | Proves dashboard reads only on-chain data (mock chain → BQ fixture → real SQL) | `./demo.sh up/seed/down` |
@@ -28,7 +30,9 @@ ERC-8004 Identity `0x8004A818…` (Sepolia) / `0x8004a169…` (mainnet, web BQ).
 - [ ] `apps/grading-cre/grader/.venv` (zelos-demeter) present → `grade_submission`.
 - [ ] typecheck all: mcp, api, web, grading-workflow.
 
-## Phase 1 — MCP drives the chain (create + read)
+## Phase 1 — the tools drive the chain (create + read)
+> "MCP" / "MCP tool" below = the 6 `mcp__honeycomb__*` tools the plugin exposes, each
+> forwarding to the API. They're one surface now, not a second server.
 1. `create_bounty` (override `MAKER_PUBKEY` with a real X25519 key, not the `0x11…` placeholder) → real Sepolia tx → returns `jobId`.
 2. `get_job(jobId)` → 17-field struct, `attesterKey=0x5B57aF5e`, `makerPubKey` = the real key.
 3. `list_jobs` → the new job appears, newest first.
@@ -44,10 +48,10 @@ Drive the Architecture-A flow against the same `jobId` (this is the manual/keepe
 6. Delivery: enclave re-seals winner → `deliverWinner` → `winnerDeliveryCidOf` set → maker decrypts.
 7. **Pass:** the full create→submit→score→validity→resolve→deliver chain lands on-chain and `job_events` shows `ScoreRecorded/ValidityRecorded/JobResolved`.
 
-## Phase 3 — HTTP API parity
-1. `bun apps/honeycomb-api/server.ts`; `GET /jobs/:id`, `/events`, `/jobs?limit=` → match MCP output.
-2. `POST /bounties` (with `HONEYCOMB_API_TOKEN`) → real tx, new jobId.
-3. **Pass:** API == MCP (same tool funcs); write route token-gated + loopback-only.
+## Phase 3 — plugin → API forwarding fidelity
+1. `bun apps/honeycomb-api/server.ts`; hit `GET /jobs/:id`, `/events`, `/jobs?limit=` directly, then via the plugin's tools → byte-identical (the shim just forwards).
+2. `POST /bounties` (with `HONEYCOMB_API_TOKEN`) → real tx, new jobId; same through `create_bounty`.
+3. **Pass:** what the plugin returns == what the API returns; write route token-gated + loopback-only.
 
 ## Phase 4 — grader (demeter) thesis
 1. `grade_submission` on `lp_submissions/{clean,tight,cheat}` → **4746 / 8806 / 10000**, cheat `valid=false`.
