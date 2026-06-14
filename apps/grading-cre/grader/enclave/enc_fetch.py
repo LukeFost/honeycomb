@@ -88,17 +88,30 @@ def fetch(uri: str) -> bytes:
     return data
 
 
-def _enclave_secret() -> PrivateKey:
-    """Load the enclave's X25519 secret (matching the bounty's enclaveEncPub) from env.
+# Baked-key path: the warm image COPYs the X25519 secret here (see Dockerfile.server,
+# gitignored at build). Confidential Space rejects env overrides unless the image
+# declares an allow-env-override LABEL, and CS echoes any override value to the serial
+# log -- so for the warm enclave the secret is baked into the private, attestation-
+# gated image layer instead of injected via metadata. Env still wins when set (local/dev).
+_BAKED_SECRET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "enclave_enc_secret")
 
-    ENCLAVE_ENC_SECRET is base64 (preferred) or 0x/hex, decoding to 32 bytes -- the
-    same encoding deliver.py keygen emits for `sec`.
+
+def _enclave_secret() -> PrivateKey:
+    """Load the enclave's X25519 secret (matching the bounty's enclaveEncPub).
+
+    Source order: ENCLAVE_ENC_SECRET env (local/dev), then the baked key file
+    (the warm CS image). Either is base64 (preferred) or 0x/hex decoding to 32
+    bytes -- the same encoding deliver.py keygen emits for `sec`.
     """
     s = os.environ.get("ENCLAVE_ENC_SECRET", "").strip()
+    if not s and os.path.exists(_BAKED_SECRET_PATH):
+        with open(_BAKED_SECRET_PATH, "r", encoding="utf-8") as f:
+            s = f.read().strip()
     if not s:
         raise RuntimeError(
-            "ENCLAVE_ENC_SECRET not set -- the enclave cannot open sealed submissions without "
-            "its X25519 secret (the one matching the bounty's enclaveEncPub)."
+            "ENCLAVE_ENC_SECRET not set and no baked key at "
+            f"{_BAKED_SECRET_PATH} -- the enclave cannot open sealed submissions "
+            "without its X25519 secret (the one matching the bounty's enclaveEncPub)."
         )
     raw = None
     try:
