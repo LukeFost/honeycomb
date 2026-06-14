@@ -1,10 +1,11 @@
 // ============================================================================
 // query_reputation: ERC-8004 reputation reads from BigQuery, via the local
-// reputation.py helper (which reuses analysis/bqenv.py for auth). One cross-
-// runtime seam: we shell to python3 and parse its one-line JSON.
+// reputation.py helper (which inlines its own BigQuery auth + config). One
+// cross-runtime seam: we shell to python3 and parse its one-line JSON.
 //
-// Needs Google BigQuery auth — analysis/.secrets/gcp-key.json (auto-discovered
-// by bqenv) plus the google-cloud-bigquery python package on the PATH python3.
+// Needs Google BigQuery auth — a gcp-key.json discovered up the tree (or
+// GOOGLE_APPLICATION_CREDENTIALS) plus the google-cloud-bigquery package on the
+// chosen python (analysis/.venv by default; override with HONEYCOMB_PYTHON).
 // ============================================================================
 
 import { existsSync } from "node:fs";

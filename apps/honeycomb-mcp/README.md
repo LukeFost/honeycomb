@@ -44,7 +44,7 @@ Put secrets in the gitignored repo `.env` (never commit them).
 | --- | --- | --- |
 | `SEP_PRIVATE_KEY` | `create_bounty` | Funds + signs the Sepolia tx. Read-only tools work without it. |
 | `SEPOLIA_RPC` (or `RPC`) | all on-chain tools | Resolved via `@honeycomb/chain/sepolia`. Falls back to a public node if unset (rate-limited). |
-| BigQuery auth | `query_reputation` | `analysis/.secrets/gcp-key.json` (auto-discovered by `analysis/bqenv.py`). Runs against `analysis/.venv` python (auto-discovered) which has `google-cloud-bigquery`. Override with `HONEYCOMB_PYTHON`. |
+| BigQuery auth | `query_reputation` | `gcp-key.json` auto-discovered up the tree (or `GOOGLE_APPLICATION_CREDENTIALS`); `reputation.py` inlines the auth + config (no `bqenv.py`). Runs against `analysis/.venv` python (auto-discovered) which has `google-cloud-bigquery`. Override with `HONEYCOMB_PYTHON`. |
 | `INFERENCE_API_KEY_VAR` | `grade_submission` validity half | Chainlink Confidential AI Attester key. **Without it the execution score still computes; the validity attestation throws** (faithfully surfaced, no silent fallback). |
 
 ### grade_submission and demeter

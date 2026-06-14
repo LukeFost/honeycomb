@@ -82,6 +82,15 @@ async function body(req: Request): Promise<Record<string, unknown>> {
 	}
 }
 
+// Parse an optional numeric query param. Absent -> undefined. Present but not a
+// finite number (e.g. ?limit=abc) -> 400, not a silent NaN handed downstream.
+function numParam(url: URL, key: string): number | undefined {
+	if (!url.searchParams.has(key)) return undefined;
+	const n = Number(url.searchParams.get(key));
+	if (!Number.isFinite(n)) throw new HttpError(`${key} must be a finite number`, 400);
+	return n;
+}
+
 // Reject a mutating request that is missing or fails the shared-secret check.
 // Throws (loud) rather than returning a soft default, per the repo convention.
 function requireWriteAuth(req: Request): void {
@@ -118,8 +127,7 @@ async function route(req: Request): Promise<Response> {
 	}
 
 	if (m === "GET" && pathname === "/jobs") {
-		const limit = url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined;
-		return json(await listJobs({ limit }));
+		return json(await listJobs({ limit: numParam(url, "limit") }));
 	}
 
 	const jobMatch = pathname.match(/^\/jobs\/(.+)$/);
@@ -147,8 +155,8 @@ async function route(req: Request): Promise<Response> {
 		return json(
 			await queryReputation({
 				mode: mode ?? undefined,
-				agentId: url.searchParams.has("agentId") ? Number(url.searchParams.get("agentId")) : undefined,
-				limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined,
+				agentId: numParam(url, "agentId"),
+				limit: numParam(url, "limit"),
 			}),
 		);
 	}

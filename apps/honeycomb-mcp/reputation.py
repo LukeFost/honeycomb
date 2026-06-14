@@ -42,7 +42,12 @@ for _root in _roots():
             if not _line or _line.startswith("#") or "=" not in _line:
                 continue
             _k, _v = _line.split("=", 1)
-            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+            _v = _v.strip()
+            # Strip a MATCHED surrounding quote pair only -- not stray quotes
+            # inside the value (e.g. a key containing a literal ").
+            if len(_v) >= 2 and _v[0] == _v[-1] and _v[0] in "\"'":
+                _v = _v[1:-1]
+            os.environ.setdefault(_k.strip(), _v)
         break
 
 if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
@@ -132,7 +137,11 @@ def feedback(agent_id, limit):
             "client": r["client"],
             "raw_value": r["raw_value"],
             "value_decimals": r["value_decimals"],
-            "score": (r["raw_value"] / (10 ** r["value_decimals"])) if r["raw_value"] is not None and r["value_decimals"] else r["raw_value"],
+            # value_decimals == 0 is a valid scale (score == raw_value), so gate
+            # on `is not None`, not truthiness -- a 0-decimal row must still divide.
+            "score": (r["raw_value"] / (10 ** r["value_decimals"]))
+            if r["raw_value"] is not None and r["value_decimals"] is not None
+            else r["raw_value"],
             "at": r["block_timestamp"].isoformat(),
             "tx": r["transaction_hash"],
         }
