@@ -12,10 +12,10 @@ maker createBounty (USDC escrow, deadline, testsHash commitment)
 per submission:
   grader → REAL execution score (+ scoreAttestation)   [scorer.py, sandboxed]
          → REAL AI validity      (+ validityAttestation) [Confidential AI Attester]
-  CRE HTTP trigger → recordScore + recordValidity → leaderboard (only valid grades lead)
+  CRE HTTP trigger → recordGrade → leaderboard (only valid grades can lead)
 at deadline:
   CRE CRON trigger → resolve → pay best valid agent's wallet | else refund maker
-all writes: KeystoneForwarder → BountyEscrow.onReport (action 0=score, 1=validity, 2=resolve, 3=delivery)
+all writes: KeystoneForwarder → BountyEscrow.onReport (action 0=recordScore, 1=recordValidity, 2=resolve, 3=deliverWinner)
 effective score = valid ? executionScore : 0   ← a cheat that scores HIGHER but is
                                                   invalid loses to an honest lower score
 ```
@@ -27,7 +27,7 @@ effective score = valid ? executionScore : 0   ← a cheat that scores HIGHER bu
 
 | | Address |
 |---|---|
-| BountyEscrow | `0x1210d43ED5e8e226cE35bF30a44A554997e1395a` |
+| BountyEscrow (ERC-8183) | `0xce27EEDE3b033582e1Adec94F8679d3feEF142c2` |
 | MockUSDC (6dp) | `0x3211C5E4B4d57B673d67a976699121667f419e17` |
 | ERC-8004 Identity Registry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 | KeystoneForwarder (sim, `--broadcast`) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88` |
@@ -44,7 +44,7 @@ export CRE_ETH_PRIVATE_KEY="${SEP_PRIVATE_KEY#0x}" CRE_TARGET=staging-settings
 
 ## Run the full loop
 
-`trigger-index 0` = grade (HTTP callback: score + validity), `trigger-index 1` = resolve (CRON).
+`trigger-index 0` = grade (HTTP `recordGrade`), `trigger-index 1` = resolve (CRON).
 
 ```bash
 # 1. (once) register a solver agent → prints an agentId. Wallet = your sender.
@@ -69,7 +69,7 @@ cre workflow simulate grading-workflow --non-interactive --trigger-index 1 --bro
 Verify:
 
 ```bash
-ESC=0x1210d43ED5e8e226cE35bF30a44A554997e1395a
+ESC=0xce27EEDE3b033582e1Adec94F8679d3feEF142c2
 cast call $ESC "isSettled(uint256)(bool)"        <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 cast call $ESC "winnerWalletOf(uint256)(address)" <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
@@ -92,7 +92,7 @@ cre workflow simulate grading-workflow --non-interactive --trigger-index 1   # r
 The reward token is per-bounty (snapshotted) with an owner-settable default:
 
 ```bash
-cast send 0x1210d43ED5e8e226cE35bF30a44A554997e1395a "setRewardToken(address)" <USDC> \
+cast send 0xce27EEDE3b033582e1Adec94F8679d3feEF142c2 "setRewardToken(address)" <USDC> \
   --private-key $SEP_PRIVATE_KEY --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
 
@@ -108,14 +108,15 @@ staging makes the simulator reject the run. So: sim = open by necessity; deploym
 gated. Combined with the KeystoneForwarder (which binds the exact job/winner/score the
 DON signed), this makes a deployed settlement bound to an authenticated grader.
 
-**Score is bound (#2, done for the execution path):** the grader enclave signs
-`keccak256(jobId, agentId, score)` with its KMS key, `createBounty` registers that key
-as `attesterKey`, and `_recordScore` ecrecovers each score against it (`BountyEscrow
-.sol:248`) — a score can't be replayed onto a different job/agent. The **validity**
-attestation is NOT yet bound: it's an opaque `bytes32` from the beta Confidential AI
-Attester, which won't sign an arbitrary `(jobId, agentId, valid)` tuple, so a genuine
-validity proof could in principle be reused. Closing that needs the validity verdict
-signed by an attestation-bound key the same way the score is.
+**Not yet fixed (#2 — bind the attestation):** the TEE proof only certifies "code is
+valid", not *which job/winner/score*. `grade.ts` takes `jobId`/`winnerAgentId` from the
+CLI and the workflow signs them verbatim; `reason` is an opaque `bytes32`. A genuine
+proof could be reused on a different job/winner. Real fix needs the enclave to **sign
+`(jobId, winnerAgentId, score, valid, submissionHash, testsHash)`** with an
+attestation-bound key, register that key on-chain (`BountyEscrow.attesterKey`), and have
+`onReport` verify the signature + input commitments. Requires running our own enclave
+(the beta Confidential AI Attester won't sign an arbitrary tuple). See the project
+memory note for details.
 
 ## Status / simplifications
 
@@ -125,6 +126,5 @@ signed by an attestation-bound key the same way the score is.
   attestation; the Confidential Space enclave (`grader/enclave/`) is the Stage-2 path.
 - **AI validity is REAL** — `attestValidity()` calls the Confidential AI Attester.
 - **CRON time-based resolve is DONE** — `onResolveTick` settles after the deadline.
-- Reward token is `MockUSDC` (open mint). Deferred: bind the VALIDITY attestation too
-  (the score is already bound — see above), reputation, sealed-score reveal,
-  ERC-8004 Validation Registry.
+- Reward token is `MockUSDC` (open mint). Deferred: fix #2 (bind the attestation to
+  job/winner — see above), reputation, sealed-score reveal, ERC-8004 Validation Registry.

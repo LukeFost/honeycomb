@@ -9,12 +9,14 @@ web dashboard + chain-verify. Written 2026-06-14 from a full repo sweep.
 |---|---|---|
 | `apps/honeycomb-mcp` | MCP stdio: create_bounty, get_job, list_jobs, job_events, query_reputation, grade_submission | `bun apps/honeycomb-mcp/server.ts` |
 | `apps/honeycomb-api` | Same 6 functions over HTTP (reuses mcp/tools) | `bun apps/honeycomb-api/server.ts` |
-| `apps/grading-cre` | BountyEscrow `0x1210d43E` + CRE workflow + grader (demeter) | cast / `cre workflow simulate` |
+| `apps/grading-cre` | BountyEscrow `0xce27EEDE` (ERC-8183) + CRE workflow + grader (demeter) | cast / `cre workflow simulate` |
 | `apps/web` | Dashboard: Layer-1 trust (live BQ) + Layer-2 market | `pnpm --filter web dev` |
 | `tools/chain-verify` | Proves dashboard reads only on-chain data (mock chain → BQ fixture → real SQL) | `./demo.sh up/seed/down` |
+| `apps/x402-facilitator` | x402 payment facilitator: verify + settle EIP-3009 USDC | `bun apps/x402-facilitator/server.ts` |
+| `apps/tee-runner/enclave` | Warm Confidential Space daemon: paid `/run` of buyer code in a hardened sandbox + attestation proof | `enclave_server.py` (Confidential Space VM; dev: `SANDBOX_ALLOW_UNSAFE=1`) |
 | BigQuery | ERC-8004 reputation (mainnet public logs) + escrow events | via the above |
 
-Canonical addresses (Sepolia): Escrow `0x1210d43ED5e8e226cE35bF30a44A554997e1395a`,
+Canonical addresses (Sepolia): Escrow `0xce27EEDE3b033582e1Adec94F8679d3feEF142c2` (ERC-8183),
 USDC `0x3211C5E4B4d57B673d67a976699121667f419e17`, attesterKey `0x5B57aF5e…`,
 ERC-8004 Identity `0x8004A818…` (Sepolia) / `0x8004a169…` (mainnet, web BQ).
 
@@ -61,6 +63,17 @@ Drive the Architecture-A flow against the same `jobId` (this is the manual/keepe
 2. `tools/chain-verify/demo.sh up && seed` → mock chain emits ERC-8004 + escrow events → indexed to BQ fixture → dashboard shows them via the **real** bq.ts SQL → `assert-demo` golden checks pass.
 3. **Pass:** dashboard data provably comes from on-chain (no stubs) in the chain-verify path.
 
+## Phase 8 — x402 "summon the TEE" (standalone showcase)
+Separate from the bounty pipeline today (`/api/summon` has no jobId/escrow link; GAPS Phase-3
+roadmap is to make it spawn the per-bounty TEE). Test it as its own flow:
+1. Run `apps/x402-facilitator` + the tee-runner enclave (Confidential Space VM, or `SANDBOX_ALLOW_UNSAFE=1` dev).
+2. `POST /api/summon {code}` unpaid → **402** challenge (`nonce` + HMAC `nonceSig`).
+3. Wallet signs EIP-3009 USDC `transferWithAuthorization` with `authorization.nonce == nonce`.
+4. Paid re-POST (`X-PAYMENT`) → route enforces HMAC + nonce equality → facilitator **verify** → **settle** (real on-chain tx) → enclave **`/run`** → `{result, proof, x402Receipt}`.
+5. `verify-attestation` / `teeProof.ts` validates the proof bundle; `/summon` UI does the round-trip.
+- **Pass:** unpaid → 402; tampered nonce/code → 402; valid pay → settled tx + attested result; absent/bad attestation → surfaced, never faked.
+- **Prereqs:** wallet with USDC (EIP-3009), facilitator+enclave reachable, `SUMMON_NONCE_HMAC_SECRET`, enclave id-token audience (if Confidential Space).
+
 ## Phase 7 — cross-consistency
 - [ ] Escrow address identical across mcp `chain.ts`, api, and any docs (fix grading-cre/README, still `0xC0543`).
 - [ ] Job struct field order matches on-chain (verified for `0x1210d43E`).
@@ -73,14 +86,14 @@ Drive the Architecture-A flow against the same `jobId` (this is the manual/keepe
 These are the seams where two components don't yet meet. The big e2e should either
 pre-fix or explicitly flag each:
 
-1. **A bounty created via MCP does NOT show on the web dashboard.**
-   - Layer-2 (`/api/bounties`, `/api/market`) reads **seed CSVs** until `BQ_ESCROW_ADDRESS` is set.
-   - Worse: even when set, the web Layer-2 decode SQL (`bq.ts`) expects events
-     **`BountyCreated / SubmissionMade / ValidationRecorded / BountySettled`**, but the deployed
-     grading escrow `0x1210d43E` emits **`JobCreated / ScoreRecorded / ValidityRecorded / JobResolved`**.
-     **The web's BQ event ABI ≠ the grading escrow's events.** → the dashboard can't index the
-     live grading bounty without reconciling the event schema (or an indexer that maps one to the other).
-   - **This is the #1 thing to resolve for a single seamless demo.**
+1. **A bounty created via MCP does NOT show on the web dashboard.** ✅ RESOLVED (2026-06-14).
+   - Fix: the ERC-8183 escrow `0xce27EEDE` now **also emits the web-shaped alias events**
+     `BountyCreated / SubmissionMade / ValidationRecorded / BountySettled` ALONGSIDE its native
+     `JobCreated / ScoreRecorded / ValidityRecorded / JobResolved` (jobId == bountyId). The four
+     alias topic0s were verified byte-equal to `web/src/lib/bq.ts` `ESCROW.events.*` (note
+     `BountyCreated` uses **`uint64 deadline`** to match the web's topic0 `0x7181b860…`).
+   - Remaining: set `BQ_ESCROW_ADDRESS=0xce27EEDE3b033582e1Adec94F8679d3feEF142c2` for the web
+     `/api/refresh` loop (Layer-2 stays seed-CSV-only while unset — production default).
 
 2. **`grade_submission` is a preview, not the on-chain record path.**
    - It emits the **combined** `{score, valid, scoreAttestation, validityAttestation}` (a content-commitment
