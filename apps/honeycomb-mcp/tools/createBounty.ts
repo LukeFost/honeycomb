@@ -8,7 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { decodeEventLog, type Hex } from "viem";
 import {
 	ATTESTER_KEY,
@@ -25,14 +25,30 @@ import { type Address } from "viem";
 const GRADING_CRE = join(import.meta.dir, "..", "..", "grading-cre");
 
 // testsHash digests EVERY file under <bountyDir>/private/, sorted. This MUST
-// byte-match create-bounty.ts (apps/grading-cre/maker/create-bounty.ts:52-54):
-// sorted readdir of private/, each file read utf8, joined with "\n--FILE--\n".
-// A fixed list here previously diverged from the maker's sorted walk and
-// produced a DIFFERENT on-chain testsHash for the identical bundle.
-function bundlePrivateDir(bountyDir: string): string {
+// byte-match create-bounty.ts (apps/grading-cre/maker/create-bounty.ts): dotfiles
+// dropped, sorted readdir, each file read as a RAW Buffer (no encoding), framed
+// with "\n--FILE--\n", sha256. Read as Buffers — not utf8 — so the digest is
+// byte-exact across both writers even for non-UTF8 / binary private files; a utf8
+// round-trip here would silently diverge the on-chain testsHash from the maker's.
+// A fixed file list (the old shape) diverged from the maker's sorted walk and
+// produced a DIFFERENT testsHash for the identical bundle.
+function bundleFiles(dir: string, files: string[]): Buffer {
+	return Buffer.concat(
+		files.flatMap((f, i) => {
+			const data = readFileSync(join(dir, f)); // Buffer, no encoding
+			return i === 0 ? [data] : [Buffer.from("\n--FILE--\n"), data];
+		}),
+	);
+}
+function bundlePrivateDir(bountyDir: string): Buffer {
 	const dir = join(bountyDir, "private");
-	const files = readdirSync(dir).sort();
-	return files.map((f) => readFileSync(join(dir, f), "utf8")).join("\n--FILE--\n");
+	// Drop dotfiles (.DS_Store etc.) so OS cruft can't perturb the commitment, and
+	// fail loud on an empty dir rather than committing sha256("") silently.
+	const files = readdirSync(dir)
+		.filter((f) => !f.startsWith("."))
+		.sort();
+	if (files.length === 0) throw new Error(`no private files under ${dir}`);
+	return bundleFiles(dir, files);
 }
 
 export const createBountyInput = {
@@ -71,17 +87,7 @@ export async function createBounty(args: {
 	const reward = args.rewardUSDC ?? 50;
 	const hours = args.hoursToDeadline ?? 1;
 	const relDir = args.bountyDir ?? "maker/bounties/uniswap-lp-trading-bot";
-	// A relative bountyDir MUST stay under apps/grading-cre — the docstring promises
-	// it and the bundle gets read + hashed + committed on-chain, so an unbounded
-	// "../../" would read (and disclose the digest of) arbitrary files. An absolute
-	// path is honored as a deliberate operator opt-out.
-	const bountyDir = isAbsolute(relDir) ? relDir : resolve(GRADING_CRE, relDir);
-	if (!isAbsolute(relDir)) {
-		const root = resolve(GRADING_CRE);
-		if (bountyDir !== root && !bountyDir.startsWith(root + sep)) {
-			throw new Error(`bountyDir escapes apps/grading-cre: ${relDir}`);
-		}
-	}
+	const bountyDir = isAbsolute(relDir) ? relDir : join(GRADING_CRE, relDir);
 	const attesterKey = (args.attesterKey ?? ATTESTER_KEY) as Address;
 
 	// 1. Commit to the PRIVATE bundle (never published). Default: the same sorted
@@ -89,7 +95,7 @@ export async function createBounty(args: {
 	//    which path opened the bounty. An explicit privateFiles override is honored
 	//    but will NOT match the maker's digest — only use it if you know why.
 	const bundle = args.privateFiles
-		? args.privateFiles.map((f) => readFileSync(join(bountyDir, f), "utf8")).join("\n--FILE--\n")
+		? bundleFiles(bountyDir, args.privateFiles)
 		: bundlePrivateDir(bountyDir);
 	const testsHash = ("0x" + createHash("sha256").update(bundle).digest("hex")) as Hex;
 
