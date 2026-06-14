@@ -32,8 +32,8 @@ const RPC = SEPOLIA_RPC;
 const PK = process.env.SEP_PRIVATE_KEY;
 // REDEPLOYED 6-arg escrow (INTEGRATION.md "Deployed"). The old 4-arg escrow at
 // 0xC0543ac4 lacks the createBounty(...,address,bytes32) selector and reverts;
-// the 6-arg ABI below MUST target this address. Verified on-chain 2026-06-14:
-// 0x1210d43E answers the 6-arg selector, getJob is the 17-field struct.
+// the 6-arg ABI below MUST target this address (never revert to 4-arg/0xC0543ac4).
+// 0x1210d43E answers the 6-arg selector; getJob is the 18-field struct.
 const ESCROW = process.env.ESCROW ?? "0x1210d43ED5e8e226cE35bF30a44A554997e1395a";
 const USDC = process.env.USDC ?? "0x3211C5E4B4d57B673d67a976699121667f419e17";
 if (!PK) throw new Error("SEP_PRIVATE_KEY not set");
@@ -81,7 +81,9 @@ const budget = BigInt(Math.round(reward * 1e6)); // 6-decimal token base units
 // block.timestamp > expiredAt, BountyEscrow.sol:234).
 const deadline =
 	Math.floor(Date.now() / 1000) + (process.env.DEADLINE_SECS ? Number(process.env.DEADLINE_SECS) : hours * 3600);
-const specCid = process.env.SPEC_CID ?? `honeycomb://${bountyDir.split("/").pop()}/spec.md`; // TODO: real IPFS CID
+// SPEC_CID overrides with a real IPFS CID when available; otherwise we commit a
+// synthetic honeycomb:// pointer derived from the bounty dir name.
+const specCid = process.env.SPEC_CID ?? `honeycomb://${bountyDir.split("/").pop()}/spec.md`;
 
 // Shell out to `cast` via execFileSync with an ARGS ARRAY — no shell parsing, so
 // nothing here is an injection surface and the secret RPC never lands on argv:

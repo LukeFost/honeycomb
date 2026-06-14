@@ -113,7 +113,7 @@ export default async function Page() {
   );
 }
 
-/* ---- inline presentational helpers ---- */
+/* inline presentational helpers */
 
 function Kpi({
   value,

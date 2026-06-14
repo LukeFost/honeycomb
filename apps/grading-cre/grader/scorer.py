@@ -21,10 +21,8 @@
 import sys
 import os
 
-# ---------------------------------------------------------------------------
 # Re-exec shim: transparently switch to the demeter venv when demeter is not
 # available in the current interpreter. Only fires once (DEMETER_REEXEC guard).
-# ---------------------------------------------------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
 VENV_PYTHON = os.path.join(HERE, ".demeter-venv", "bin", "python")
 
@@ -39,9 +37,7 @@ if os.environ.get("DEMETER_REEXEC") != "1":
         # If the venv Python doesn't exist either, fall through and let the
         # later `import demeter` raise a clear ImportError.
 
-# ---------------------------------------------------------------------------
 # Standard imports (after the re-exec so we're definitely in the right Python)
-# ---------------------------------------------------------------------------
 import json
 import select
 import signal
@@ -57,9 +53,7 @@ from demeter.broker import MarketInfo
 # Silence demeter's verbose progress output on stderr.
 logging.disable(logging.CRITICAL)
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
+# --- Config ---
 
 # Per-bar wall-clock budget. An on_bar() that hangs (infinite loop, sleep,
 # blocking I/O) must not hang the grader -- the parent arms a deadline on every
@@ -102,7 +96,6 @@ PRIVATE_SERIES = os.environ.get(
     ),
 )
 
-# ---------------------------------------------------------------------------
 # Worker filesystem jail.
 #
 # The "no-peek by construction" guarantee covers the DATA channel: the worker
@@ -170,18 +163,11 @@ INIT_WETH = Decimal("2")
 # above the honest wider-band strategy.
 
 
-# ---------------------------------------------------------------------------
-# WorkerError
-# ---------------------------------------------------------------------------
-
 class WorkerError(Exception):
     """The worker reported an error reply, died, or desynced. Score is 0."""
 
 
-# ---------------------------------------------------------------------------
 # Demeter Strategy (TRUSTED -- lives in this process, never runs submission code)
-# ---------------------------------------------------------------------------
-
 class _LPStrategy(Strategy):
     """
     Trusted Strategy subclass. demeter calls on_bar() once per bar with a
@@ -261,10 +247,6 @@ class _LPStrategy(Strategy):
 
         # Any other value would have been rejected by the worker already.
 
-
-# ---------------------------------------------------------------------------
-# score()
-# ---------------------------------------------------------------------------
 
 def score(submission_path: str) -> int:
     """

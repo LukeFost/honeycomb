@@ -143,9 +143,9 @@ via Solidity ecrecover. See `enclave/deploy.sh` + memory `grader-stage2-live-pro
   - **lines 30–39**: LP-vs-directional scorer/data selection (`BOUNTY`, `IS_LP`, `SCORER`,
     `PRIVATE_SERIES`). Self-contained, low collision risk.
   - **lines 138–147**: the callback JSON emission. THIS is the merge-sensitive one — it must
-    stay in lockstep with the CRE `onGrade` handler's `GradeCallback` shape and
-    `BountyEscrow._recordGrade`'s decode. Current shape (verified zero-drift vs the contract):
-    `{ jobId, agentId, status, score (0..10000), valid, scoreAttestation, validityAttestation }`.
+    stay in lockstep with the CRE `onCallback` handler's `Callback` shape and the
+    `_recordScore` / `_recordValidity` decodes. Current shape (verified zero-drift vs the
+    contract): `{ jobId, agentId, status, score (0..10000), valid, scoreAttestation, validityAttestation }`.
 - **`apps/grading-cre/.gitignore`** — added `.venv*/` + `__pycache__/`.
 - **`.gitignore` (root)** — `goals/` ignore (chore commit `ac4c7d5`).
 

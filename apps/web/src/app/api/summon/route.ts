@@ -74,11 +74,9 @@ import type {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ---------------------------------------------------------------------------
 // Per-network config. Testnet vs mainnet is ONE env flip (SUMMON_NETWORK).
 // USDC address + EIP-712 domain (name/version) differ per chain, so we key them
 // here. amount + payTo come from env so price/recipient are not hard-coded.
-// ---------------------------------------------------------------------------
 
 type NetworkConfig = {
   /** USDC (or settlement token) contract address -- the EIP-712 verifyingContract. */
@@ -108,9 +106,7 @@ const NETWORK_CONFIG: Record<string, NetworkConfig> = {
 
 const X402_VERSION = 2;
 
-// ---------------------------------------------------------------------------
 // env (all with safe testnet-first defaults; only SUMMON_PAY_TO is required).
-// ---------------------------------------------------------------------------
 
 /** Read config from env, throwing loudly on anything missing/unsupported. */
 function readConfig(): {
@@ -185,9 +181,7 @@ function readConfig(): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
+// --- helpers ---
 
 /** An HTTP-status-carrying error; the handler maps it to NextResponse.json(...,{status}). */
 class HttpError extends Error {
@@ -356,9 +350,7 @@ async function mintEnclaveIdToken(audience: string): Promise<string> {
   return token;
 }
 
-// ---------------------------------------------------------------------------
-// handler
-// ---------------------------------------------------------------------------
+// --- handler ---
 
 export async function POST(req: Request) {
   try {

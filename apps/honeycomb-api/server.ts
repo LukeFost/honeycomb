@@ -15,7 +15,7 @@
 //   GET  /skill           the usage guide (markdown)            [no secrets]
 //   GET  /jobs            list recent bounties                  [no secrets]
 //   GET  /jobs/:id        one job's full state                  [no secrets]
-//   GET  /events          decoded GradeRecorded/JobResolved...  [no secrets]
+//   GET  /events          decoded ScoreRecorded/ValidityRecorded/...  [no secrets]
 //   GET  /reputation      ERC-8004 reputation (BigQuery)        [BigQuery auth]
 //   POST /bounties        open + fund a bounty (BROADCASTS)     [SEP_PRIVATE_KEY]
 //   POST /grade           run the real grader                   [demeter venv, INFERENCE key]
@@ -137,7 +137,9 @@ async function route(req: Request): Promise<Response> {
 
 	if (m === "GET" && pathname === "/events") {
 		const eventName = url.searchParams.get("eventName") as
-			| "GradeRecorded"
+			| "ScoreRecorded"
+			| "ValidityRecorded"
+			| "NewLeader"
 			| "JobResolved"
 			| "JobCreated"
 			| null;

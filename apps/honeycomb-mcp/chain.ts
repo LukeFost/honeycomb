@@ -21,9 +21,9 @@ import { SEPOLIA_RPC } from "@honeycomb/chain/sepolia";
 export const RPC = SEPOLIA_RPC;
 // REDEPLOYED 6-arg escrow (apps/grading-cre/INTEGRATION.md "Deployed"). The old
 // 4-arg escrow at 0xC0543ac4 lacks the createBounty(...,address,bytes32) selector
-// and its getJob is the 15-field struct; this one is 6-arg + the 17-field struct
-// (verified on-chain 2026-06-14: 0x1210d43E answers the 6-arg selector, getJob
-// decodes 17 fields, job #1 score 2282). Both the ABI + JOB_TUPLE below match it.
+// and its getJob is the 15-field struct; this one is 6-arg + the 18-field struct
+// (0x1210d43E answers the 6-arg selector, getJob decodes 18 fields). Both the ABI
+// + JOB_TUPLE below match it; never revert callers to 4-arg/0xC0543ac4.
 export const ESCROW = (process.env.ESCROW ??
 	"0x1210d43ED5e8e226cE35bF30a44A554997e1395a") as Address;
 export const USDC = (process.env.USDC ??
@@ -59,11 +59,10 @@ export type JobStatusName = (typeof JOB_STATUS)[number];
 
 // --- ABI (subset) -----------------------------------------------------------
 // getJob returns the full Job struct; the tuple order MUST match the DEPLOYED
-// BountyEscrow at ESCROW (Sepolia 0x1210d43E), which is the 17-field struct:
-// the G11 redeploy inserted `attesterKey` + `makerPubKey` after specCid and
-// appended `winnerDeliveryCid`. The field ORDER is load-bearing — a 15-field
-// decode against this contract mis-aligns and reads garbage (verified on-chain
-// 2026-06-14: 17-field decode reads job #1 attesterKey 0x5B57aF / score 2282).
+// BountyEscrow at ESCROW (Sepolia 0x1210d43E), the 18-field struct: the G11
+// redeploy inserted `attesterKey` + `makerPubKey` after specCid and appended
+// `winnerDeliveryCid`. The field ORDER is load-bearing — a 15-field decode
+// against this contract mis-aligns and reads garbage.
 const JOB_TUPLE = {
 	type: "tuple",
 	components: [

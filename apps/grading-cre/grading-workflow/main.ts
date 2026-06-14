@@ -3,10 +3,11 @@
 // ============================================================================
 // Two handlers, one workflow:
 //
-//   • HTTP trigger  onGrade        — the grader (TEE) posts each graded submission;
-//     this records it on-chain via BountyEscrow.recordGrade, carrying BOTH TEE
-//     outputs: the execution score (+ scoreAttestationHash) and the AI validity
-//     verdict (+ validityAttestationHash). Only valid grades can take the lead.
+//   • HTTP trigger  onCallback     — the TEEs post per-submission results; each is
+//     recorded on-chain via BountyEscrow. A grade arrives as separate callbacks:
+//     kind "score" (enclave-signed execution score, ecrecover-verified) and kind
+//     "validity" (AI verdict + attestation digest). A post-resolve kind "delivery"
+//     re-seals the winning code to the maker. Only valid grades can take the lead.
 //
 //   • CRON trigger  onResolveTick  — the TIME-BASED resolver. After the bounty's
 //     deadline it calls BountyEscrow.resolve(jobId), paying the best valid agent
@@ -14,7 +15,7 @@
 //     deadline; before it, resolve reverts and we just log + move on.
 //
 // Both reach the consumer through the KeystoneForwarder's single onReport, with
-// an action discriminator (0 = recordGrade, 1 = resolve).
+// an action discriminator (0 = score, 1 = validity, 2 = resolve, 3 = delivery).
 //
 // QuickJS/WASM runtime: no process.env / Buffer / crypto; viem does ABI encoding;
 // Solidity integers are bigint.
@@ -46,7 +47,7 @@ type AuthorizedKey = {
 };
 
 export type Config = {
-	authorizedKeys: AuthorizedKey[]; // gates the HTTP (recordGrade) trigger when deployed
+	authorizedKeys: AuthorizedKey[]; // gates the HTTP (onCallback) trigger when deployed
 	consumerAddress: `0x${string}`;
 	chainSelectorName: string;
 	schedule: string; // CRON schedule for the resolver
@@ -149,7 +150,7 @@ export const onCallback = (runtime: Runtime<Config>, payload: HTTPPayload): stri
 		report = actionReport(3, encodeAbiParameters(parseAbiParameters(DELIVER_ABI), [jobId, deliveryCid]));
 		summary = { action: "deliverWinner", jobId: jobId.toString(), deliveryCid };
 	} else {
-		runtime.log(`unknown kind "${cb.kind}"; expected "score" or "validity".`);
+		runtime.log(`unknown kind "${cb.kind}"; expected "score", "validity", or "delivery".`);
 		return JSON.stringify({ action: "skipped", reason: "unknown kind" });
 	}
 

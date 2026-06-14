@@ -38,7 +38,6 @@ const PRIVATE_SERIES = IS_LP
 	? join(HERE, "..", "maker", "bounties", "uniswap-lp-range-bot", "private", "pool_private.csv")
 	: join(HERE, "..", "maker", "bounties", "uniswap-lp-trading-bot", "private", "prices_private.json");
 
-// ---------------------------------------------------------------------------
 // REAL execution grading. Runs the submission against the PRIVATE price series
 // in a separate, isolated process (scorer.py spawns the untrusted worker; the
 // submission sees only price DATA, never the file, never the network) and
@@ -50,7 +49,6 @@ const PRIVATE_SERIES = IS_LP
 // graded against this exact private series, produced this exact score", and is
 // verifiable later against the on-chain scoreAttestationHash. It is NOT a
 // hardware attestation yet — honest labeling per HARNESS_SPEC.md.
-// ---------------------------------------------------------------------------
 function executionGrade(submissionPath: string, code: string, bountyId: string): {
 	score: number;
 	attestationDigest: string;
@@ -73,9 +71,7 @@ function executionGrade(submissionPath: string, code: string, bountyId: string):
 	return { score, attestationDigest };
 }
 
-// ---------------------------------------------------------------------------
-// REAL AI validity attestation via the Chainlink Confidential AI Attester.
-// ---------------------------------------------------------------------------
+// --- REAL AI validity attestation via the Chainlink Confidential AI Attester ---
 async function attestValidity(filename: string, code: string) {
 	if (!API_KEY) throw new Error("INFERENCE_API_KEY_VAR not set");
 	const auth = { Authorization: `Bearer ${API_KEY}` };
@@ -115,7 +111,7 @@ async function attestValidity(filename: string, code: string) {
 	};
 }
 
-// ---------------------------------------------------------------------------
+// --- CLI entrypoint ---
 const path = process.argv[2];
 if (!path) {
 	console.error("usage: bun grader/grade.ts <submission-file> [jobId] [winnerAgentId]");
@@ -132,8 +128,12 @@ const validity = await attestValidity(filename, code); // REAL TEE AI attestatio
 console.error(
 	`[grader] exec(REAL) score=${exec.score}/10000  validity(REAL) valid=${validity.valid} reason="${validity.reason}" inferenceId=${validity.inferenceId}`,
 );
-// Grade callback posted to the CRE workflow's HTTP (recordGrade) trigger.
-// Carries BOTH TEE outputs: execution score+digest AND AI validity+digest.
+// Combined grading result: BOTH TEE outputs (execution score+digest AND AI
+// validity+digest) in one object, for humans + the simulation fixtures. The CRE
+// onCallback trigger consumes the SPLIT form — one `kind:"score"` payload (with
+// the enclave signature) and one `kind:"validity"` payload — see simulation/
+// score-callback.json + validity-callback.json. Splitting this object into those
+// two is the caller's job; this is the source both are derived from.
 console.log(
 	JSON.stringify(
 		{

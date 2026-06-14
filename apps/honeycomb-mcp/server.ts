@@ -6,7 +6,7 @@
 //   • create_bounty     — hash private bundle -> approve USDC -> createBounty (Sepolia, broadcasts)
 //   • get_job           — full Job struct + settled + winner wallet
 //   • list_jobs         — recent bounties, newest first
-//   • job_events        — GradeRecorded / JobResolved / JobCreated logs
+//   • job_events        — ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated logs
 //   • query_reputation  — ERC-8004 reputation from BigQuery (counts/feedback/leaderboard)
 //   • grade_submission  — run a submission through the REAL grader, get score + validity
 //
@@ -108,10 +108,10 @@ server.registerTool(
 	{
 		title: "Read bounty events",
 		description:
-			"Fetch decoded GradeRecorded / JobResolved / JobCreated logs from BountyEscrow over a block range. Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
+			"Fetch decoded ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated logs from BountyEscrow over a block range. Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
 		inputSchema: {
 			jobId: z.string().optional().describe("Filter to one job id. Omit for all jobs."),
-			eventName: z.enum(["GradeRecorded", "JobResolved", "JobCreated"]).optional().describe("Which event. Default GradeRecorded."),
+			eventName: z.enum(["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated"]).optional().describe("Which event. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Default ScoreRecorded."),
 			fromBlock: z.string().optional().describe("Start block (decimal or hex). Default: last 50000 blocks."),
 		},
 	},

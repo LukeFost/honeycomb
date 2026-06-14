@@ -161,10 +161,10 @@ server.registerTool(
 	{
 		title: "Read bounty events",
 		description:
-			"Fetch decoded GradeRecorded / JobResolved / JobCreated logs from BountyEscrow over a block range. Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
+			"Fetch decoded ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated logs from BountyEscrow over a block range. Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
 		inputSchema: {
 			jobId: z.string().optional().describe("Filter to one job id. Omit for all jobs."),
-			eventName: z.enum(["GradeRecorded", "JobResolved", "JobCreated"]).optional().describe("Which event. Default GradeRecorded."),
+			eventName: z.enum(["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated"]).optional().describe("Which event. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Default ScoreRecorded."),
 			fromBlock: z.string().optional().describe("Start block (decimal or hex). Default: last 50000 blocks."),
 		},
 	},

@@ -30,9 +30,7 @@ import {
   type Hex,
 } from "viem";
 
-// ---------------------------------------------------------------------------
-// Types -- mirror the verified proof bundle + x402 wire shapes EXACTLY.
-// ---------------------------------------------------------------------------
+// --- Types -- mirror the verified proof bundle + x402 wire shapes EXACTLY ---
 
 /** The {r,s,v} secp256k1 signature returned by the enclave KMS signer. */
 export type ProofSignature = {
@@ -116,9 +114,7 @@ export type TransferWithAuthorizationTypedData = {
   };
 };
 
-// ---------------------------------------------------------------------------
-// EIP-3009 typed-data builder
-// ---------------------------------------------------------------------------
+// --- EIP-3009 typed-data builder ---
 
 /** Parse a CAIP-2 "eip155:<id>" network string into a numeric chainId. Throws loudly on bad input. */
 function chainIdFromNetwork(network: string): number {
@@ -242,9 +238,7 @@ export function buildTransferWithAuthorizationTypedData(
   return { typedData, authorization };
 }
 
-// ---------------------------------------------------------------------------
-// Proof bundle verification (the load-bearing part)
-// ---------------------------------------------------------------------------
+// --- Proof bundle verification (the load-bearing part) ---
 
 /** Encode a decimal-string uint256 as a 32-byte big-endian hex word (matches the enclave). */
 function u256ToHex32(decimal: string): Hex {
@@ -493,9 +487,7 @@ export function bindSubmission(
   return { codeHashOk, inputHashOk, failures };
 }
 
-// ---------------------------------------------------------------------------
-// Attestation (Google Confidential Space JWT) helpers
-// ---------------------------------------------------------------------------
+// --- Attestation (Google Confidential Space JWT) helpers ---
 
 /** Decoded, UNVERIFIED view of a Confidential Space attestation JWT. */
 export type AttestationClaims = {
@@ -629,9 +621,7 @@ export async function verifyAttestationSignature(
   );
 }
 
-// ---------------------------------------------------------------------------
-// internal
-// ---------------------------------------------------------------------------
+// --- internal ---
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

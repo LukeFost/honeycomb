@@ -7,16 +7,19 @@ pragma solidity 0.8.24;
 //
 // Lifecycle:
 //   1. maker createBounty(...)            → Funds USDC escrow, commits testsHash.
-//   2. grader recordGrade(...) per entry  → BOTH TEE outputs land on-chain:
-//        • execution score + scoreAttestationHash  (Confidential Space scorer)
-//        • AI validity     + validityAttestationHash (Confidential AI Attester)
+//   2. per submission, BOTH TEE outputs land on-chain as two records:
+//        • _recordScore    — execution score + scoreAttestationHash, the enclave
+//          signature ecrecover'd against the bounty's attesterKey (Confidential Space)
+//        • _recordValidity — AI validity verdict + validityAttestationHash (Confidential
+//          AI Attester)
 //      Only VALID grades can win (effective = valid ? score : 0). The contract
 //      tracks the best valid submission as the live leaderboard top.
 //   3. CRE CRON resolve(jobId) AFTER expiredAt → pays the best valid agent's
 //      wallet (ERC-8004 Identity), or refunds the maker if none.
 //
-// Both recordGrade and resolve arrive through the CRE KeystoneForwarder's single
-// onReport entrypoint, multiplexed by an action discriminator. The forwarder is
+// Every write (score, validity, resolve, delivery) arrives through the CRE
+// KeystoneForwarder's single onReport entrypoint, multiplexed by an action
+// discriminator (0=score, 1=validity, 2=resolve, 3=delivery). The forwarder is
 // the evaluator; the report is DON-signed.
 //
 // ERC-8004 Identity (Sepolia): 0x8004A818BFB912233c491871b3d84c89A494BD9e.
