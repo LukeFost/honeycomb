@@ -13,6 +13,7 @@ import { Bee, cn } from "@/components/ui";
 const LINKS = [
   { href: "/", label: "Home" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/ops", label: "Ops" },
   { href: "/summon", label: "Summon" },
 ] as const;
 

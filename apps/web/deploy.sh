@@ -31,11 +31,23 @@ BQ_ESCROW_ADDRESS="${BQ_ESCROW_ADDRESS:-0x90058162D3d55542f39507d0328538824A24C9
 # Billing/project for BigQuery jobs (public-dataset reads still bill to a project).
 BQ_BILLING_PROJECT="${BQ_BILLING_PROJECT:-honeycomb-499305}"
 
+# --- /ops dashboard wiring -------------------------------------------------
+# /ops talks to the deployed honeycomb-api over HTTP. Point it at that service.
+HONEYCOMB_API_URL="${HONEYCOMB_API_URL:-https://honeycomb-api-912224428574.us-central1.run.app}"
+# Write surface (grade / open-bounty) is LOCAL-DEV ONLY. We set the flag to 0
+# EXPLICITLY (not just leave it unset) so the deployed env states the posture:
+# /ops is read-only here. The write token (HONEYCOMB_API_TOKEN) is deliberately
+# NOT mounted, so even if the flag were flipped the proxy 503s before any upstream
+# write -- the public dashboard is read-only by construction, no perms to manage.
+HONEYCOMB_DEV="${HONEYCOMB_DEV:-0}"
+
 cd "$(git rev-parse --show-toplevel)"
 
 echo "[deploy] project=$PROJECT region=$REGION service=$SERVICE"
 echo "[deploy] image=$IMAGE runtime-sa=$RUNTIME_SA"
 echo "[deploy] BQ_ESCROW_ADDRESS=$BQ_ESCROW_ADDRESS"
+echo "[deploy] HONEYCOMB_API_URL=$HONEYCOMB_API_URL"
+echo "[deploy] HONEYCOMB_DEV=$HONEYCOMB_DEV  (0 = /ops read-only; no write token mounted)"
 
 # 1. Artifact Registry repo (idempotent).
 gcloud artifacts repositories describe "$REPO" \
@@ -60,7 +72,7 @@ gcloud run deploy "$SERVICE" \
   --port=8080 \
   --cpu=1 --memory=512Mi \
   --min-instances=0 --max-instances=4 \
-  --set-env-vars="BQ_ESCROW_ADDRESS=${BQ_ESCROW_ADDRESS},BQ_BILLING_PROJECT=${BQ_BILLING_PROJECT}"
+  --set-env-vars="BQ_ESCROW_ADDRESS=${BQ_ESCROW_ADDRESS},BQ_BILLING_PROJECT=${BQ_BILLING_PROJECT},HONEYCOMB_API_URL=${HONEYCOMB_API_URL},HONEYCOMB_DEV=${HONEYCOMB_DEV}"
 
 echo "[deploy] done. URL:"
 gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" \
