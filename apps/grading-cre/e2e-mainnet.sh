@@ -68,9 +68,11 @@ die(){ echo; echo "✗ FAILED: $*" >&2; [ -s /tmp/e2e_err ] && { echo "  --- las
 send_tx(){ local rpc=$1 pk=$2; shift 2; local h
   h=$(cast send "$@" --rpc-url "$rpc" --private-key "$pk" --json 2>/tmp/e2e_err | python3 -c "import sys,json;print(json.load(sys.stdin)['transactionHash'])" 2>/dev/null)
   [ -n "$h" ] || die "broadcast failed: cast send $* "; echo "$h"; }
-assert_status(){ local h=$1 rpc=$2 label=$3 st
+assert_status(){ local h=$1 rpc=$2 label=$3 st exp
   st=$(cast receipt "$h" --rpc-url "$rpc" --json 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('status'))" 2>/dev/null)
-  [ "$st" = "0x1" ] || die "$label REVERTED: $h (status=${st:-none})"; echo "  ✓ $label: $h"; }
+  [ "$st" = "0x1" ] || die "$label REVERTED: $h (status=${st:-none})"
+  case "$rpc" in *base*) exp="https://basescan.org/tx/$h";; *) exp="https://etherscan.io/tx/$h";; esac
+  echo "  ✓ $label  →  $exp"; }
 bal(){ cast call "$1" 'balanceOf(address)(uint256)' "$2" --rpc-url "$3" 2>/dev/null | grep -oE '^[0-9]+' | head -1; }
 cre_relay(){ local f=$1 label=$2 out tx
   out=$(cd $GR && cre workflow simulate grading-workflow --non-interactive --target mainnet-settings --trigger-index 0 --http-payload "$f" --broadcast 2>&1)
@@ -136,7 +138,7 @@ SUM=$(SUMMON_SETTLE_ONLY=1 bash $GR/grader/summon_enclave.sh bounty $JOB 0 $VM_D
 echo "$SUM" | grep -E "SETTLED|SETTLE-ONLY" | sed 's/^/    [x402] /'
 SUMMON_TX=$(echo "$SUM" | python3 -c "import sys,json;ls=[l for l in sys.stdin if l.strip().startswith('{')];print(json.loads(ls[-1]).get('tx','') if ls else '')" 2>/dev/null)
 [ -n "$SUMMON_TX" ] || { echo "$SUM" | tail -6; die "no settle tx from bounty-grader summon"; }
-echo "  ✓ bounty grader summoned via x402 settle: $SUMMON_TX (grading now authorized)"
+echo "  ✓ bounty grader summoned via x402 settle  →  https://etherscan.io/tx/$SUMMON_TX (grading authorized)"
 # seal each submission to the enclave key; the sealed blob path is the on-chain encCid
 HONEST_ENCCID=$($PY $DEL seal "$ENCLAVE_ENCPUB" "$HONEST_LOCAL")
 CHEAT_ENCCID=$($PY $DEL seal "$ENCLAVE_ENCPUB" "$CHEAT_LOCAL")
@@ -208,8 +210,8 @@ else echo "  workflow accumulate rule says '$DEC' -> hold; no swap (gate holds).
 
 echo; echo "════════ PHASE 6 — sealed winner delivery (Gap 2) ════════"
 DELIVERY_CID=$($PY $DEL reseal "$ENCLAVE_SEC" "$MAKER_PUBKEY" "$HONEST_ENCCID")   # enclave re-seals winner to maker
-python3 -c "import json;json.dump({'kind':'delivery','jobId':$JOB,'deliveryCid':open('/tmp/_dc','w').write('$DELIVERY_CID') or '$DELIVERY_CID'},open('/tmp/e2e_delivery.json','w'))" 2>/dev/null || \
-  printf '{"kind":"delivery","jobId":%s,"deliveryCid":"%s"}\n' "$JOB" "$DELIVERY_CID" > /tmp/e2e_delivery.json
+# status:"completed" is REQUIRED — the workflow's onCallback skips non-completed callbacks
+printf '{"kind":"delivery","jobId":%s,"status":"completed","deliveryCid":"%s"}\n' "$JOB" "$DELIVERY_CID" > /tmp/e2e_delivery.json
 cre_relay /tmp/e2e_delivery.json "deliverWinner (CRE action 3 -> forwarder)"
 ONCHAIN_CID=$(cast call $ESC 'winnerDeliveryCidOf(uint256)(string)' $JOB --rpc-url $ETH 2>/dev/null | tr -d '"')
 $PY $DEL open "$MAKER_SEC" "$ONCHAIN_CID" > /tmp/recovered_winner.py 2>/dev/null

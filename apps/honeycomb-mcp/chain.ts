@@ -14,20 +14,31 @@ import {
 	type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia } from "viem/chains";
+import { sepolia, mainnet } from "viem/chains";
 import { SEPOLIA_RPC } from "@honeycomb/chain/sepolia";
 
-// Canonical Sepolia RPC (env-driven, secret stays in .env). See packages/chain.
-export const RPC = SEPOLIA_RPC;
+// Network selector. HONEYCOMB_CHAIN=mainnet points the MCP at the LIVE mainnet e2e
+// (escrow 0x90058162, MockUSDC 0x8f938d9d, ERC-8004 0x8004a169); default stays Sepolia
+// so nothing breaks. Writes sign with the selected chainId, so this MUST switch the viem
+// `chain`, not just the RPC — set HONEYCOMB_RPC to a real node (Alchemy) for production use.
+export const MAINNET = process.env.HONEYCOMB_CHAIN === "mainnet";
+export const CHAIN = MAINNET ? mainnet : sepolia;
+export const RPC =
+	process.env.HONEYCOMB_RPC?.trim() ||
+	(MAINNET ? "https://ethereum-rpc.publicnode.com" : SEPOLIA_RPC);
 // ERC-8183-conformant escrow (apps/grading-cre/INTEGRATION.md "Deployed"). 7-arg
 // createBounty(...,attesterKey,makerPubKey,enclaveEncPub); the contract `is IERC8183`
 // so the standard getJob() returns the 9-field Job and getJobFull() the rich struct
 // the MCP reads (verified on-chain 2026-06-14: 0xce27EEDE, job #1 isContest=true).
 // Both the ABI + JOB_TUPLE below match getJobFull.
 export const ESCROW = (process.env.ESCROW ??
-	"0xce27EEDE3b033582e1Adec94F8679d3feEF142c2") as Address;
+	(MAINNET
+		? "0x90058162D3d55542f39507d0328538824A24C9C3"   // e2e escrow (canonical forwarder + resolveEarly)
+		: "0xce27EEDE3b033582e1Adec94F8679d3feEF142c2")) as Address;
 export const USDC = (process.env.USDC ??
-	"0x3211C5E4B4d57B673d67a976699121667f419e17") as Address;
+	(MAINNET
+		? "0x8f938d9d2099Ac04fb3D47e7ACC15be8B955161d"   // mainnet MockUSDC
+		: "0x3211C5E4B4d57B673d67a976699121667f419e17")) as Address;
 // Execution enclave's score-signer. createBounty registers this as the job's
 // attesterKey; the escrow ecrecovers each recorded grade against it (BountyEscrow
 // .sol:248), so it MUST be the live KMS score-signer. The escrow
@@ -51,7 +62,9 @@ export const ENCLAVE_ENCPUB = (process.env.ENCLAVE_ENCPUB ??
 // ERC-8004 Identity Registry on Sepolia (winner wallet lookups happen inside the
 // escrow's resolve; surfaced here only for reference / future tools).
 export const IDENTITY_REGISTRY = (process.env.IDENTITY_REGISTRY ??
-	"0x8004A818BFB912233c491871b3d84c89A494BD9e") as Address;
+	(MAINNET
+		? "0x8004a169fb4a3325136eb29fa0ceb6d2e539a432"   // ERC-8004 Identity (Ethereum mainnet)
+		: "0x8004A818BFB912233c491871b3d84c89A494BD9e")) as Address;
 
 export const JOB_STATUS = [
 	"Open",
@@ -256,14 +269,14 @@ export const ERC20_ABI = [
 	},
 ] as const;
 
-export const publicClient = createPublicClient({ chain: sepolia, transport: http(RPC) });
+export const publicClient = createPublicClient({ chain: CHAIN, transport: http(RPC) });
 
 /** Wallet client built from SEP_PRIVATE_KEY. Throws if unset — only writes need it. */
 export function walletFromEnv() {
 	const pk = process.env.SEP_PRIVATE_KEY;
 	if (!pk) throw new Error("SEP_PRIVATE_KEY not set (required for on-chain writes)");
 	const account = privateKeyToAccount((pk.startsWith("0x") ? pk : `0x${pk}`) as Hex);
-	const wallet = createWalletClient({ account, chain: sepolia, transport: http(RPC) });
+	const wallet = createWalletClient({ account, chain: CHAIN, transport: http(RPC) });
 	return { account, wallet };
 }
 
