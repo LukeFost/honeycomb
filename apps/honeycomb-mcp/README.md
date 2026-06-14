@@ -85,3 +85,37 @@ Add to your MCP config (e.g. `.mcp.json` / `claude_desktop_config.json`):
 Env (`SEP_PRIVATE_KEY`, `SEPOLIA_RPC`, `INFERENCE_API_KEY_VAR`) is read from the
 process environment / repo `.env`; add an `"env"` block to the config to inject
 them explicitly if your launcher does not load `.env`.
+
+### Keychain launcher (macOS, no secrets on disk)
+
+To keep secrets out of `.mcp.json`, point the MCP `command` at a small launcher
+that loads them from the macOS login Keychain at runtime and `exec`s the server.
+Create `run-with-secrets.sh` next to `server.ts` (it is gitignored — secrets-bearing
+launchers are kept untracked):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+load() { local var="$1" svc="$2" val
+  [[ -n "${!var:-}" ]] && return 0                       # env override wins
+  val="$(security find-generic-password -s "$svc" -w 2>/dev/null)" \
+    && export "$var=$val" \
+    || echo "[run-with-secrets] keychain item '$svc' not found; $var unset" >&2; }
+load SEP_PRIVATE_KEY       honeycomb_sep_private_key      # create_bounty
+load INFERENCE_API_KEY_VAR honeycomb_inference_api_key    # grade_submission validity
+load SEPOLIA_RPC           honeycomb_sepolia_rpc          # all on-chain reads
+cd "$(dirname "${BASH_SOURCE[0]}")"
+exec bun server.ts
+```
+
+`chmod +x run-with-secrets.sh`, then set `"command"` to its absolute path. On
+CI / Linux (no Keychain) set the env vars directly and run `bun server.ts`.
+
+### Tool safety hints
+
+Every tool carries MCP `annotations`. `create_bounty` is the only
+`destructiveHint: true` (it broadcasts two real Sepolia txs and spends USDC); the
+other six are `readOnlyHint: true`. A well-behaved client uses these to confirm
+before the one tool that moves money. `query_reputation` also needs a BigQuery
+key (`analysis/.secrets/gcp-key.json` or `GOOGLE_APPLICATION_CREDENTIALS`); the
+python `google-cloud-bigquery` lib alone is not enough.
