@@ -41,6 +41,14 @@ HONEYCOMB_API_URL="${HONEYCOMB_API_URL:-https://honeycomb-api-912224428574.us-ce
 # write -- the public dashboard is read-only by construction, no perms to manage.
 HONEYCOMB_DEV="${HONEYCOMB_DEV:-0}"
 
+# --- /agents dashboard wiring ----------------------------------------------
+# The per-agent pages (/agents, /agents/[id]) read the SAME Neon DB the MCP
+# writes to (grades / tool_calls), via DATABASE_URL. It is a CREDENTIAL, so it
+# is mounted from Secret Manager (honeycomb-database-url), never inlined here.
+# Set DB_SECRET="" to deploy WITHOUT Neon -- the pages then render an honest
+# "persistence not configured" state instead of failing.
+DB_SECRET="${DB_SECRET:-honeycomb-database-url}"
+
 cd "$(git rev-parse --show-toplevel)"
 
 echo "[deploy] project=$PROJECT region=$REGION service=$SERVICE"
@@ -48,6 +56,7 @@ echo "[deploy] image=$IMAGE runtime-sa=$RUNTIME_SA"
 echo "[deploy] BQ_ESCROW_ADDRESS=$BQ_ESCROW_ADDRESS"
 echo "[deploy] HONEYCOMB_API_URL=$HONEYCOMB_API_URL"
 echo "[deploy] HONEYCOMB_DEV=$HONEYCOMB_DEV  (0 = /ops read-only; no write token mounted)"
+echo "[deploy] DB_SECRET=${DB_SECRET:-<none>}  (Neon URL for /agents; empty = persistence off)"
 
 # 1. Artifact Registry repo (idempotent).
 gcloud artifacts repositories describe "$REPO" \
@@ -63,6 +72,13 @@ gcloud builds submit --project="$PROJECT" \
   --substitutions="_IMAGE=${IMAGE}" .
 
 # 3. Deploy to Cloud Run.
+#    DATABASE_URL is mounted from Secret Manager when DB_SECRET is set; otherwise
+#    the flag is omitted entirely and /agents renders its "persistence off" state.
+SECRET_FLAGS=()
+if [[ -n "${DB_SECRET}" ]]; then
+  SECRET_FLAGS+=(--set-secrets="DATABASE_URL=${DB_SECRET}:latest")
+fi
+
 gcloud run deploy "$SERVICE" \
   --project="$PROJECT" \
   --region="$REGION" \
@@ -72,7 +88,8 @@ gcloud run deploy "$SERVICE" \
   --port=8080 \
   --cpu=1 --memory=512Mi \
   --min-instances=0 --max-instances=4 \
-  --set-env-vars="BQ_ESCROW_ADDRESS=${BQ_ESCROW_ADDRESS},BQ_BILLING_PROJECT=${BQ_BILLING_PROJECT},HONEYCOMB_API_URL=${HONEYCOMB_API_URL},HONEYCOMB_DEV=${HONEYCOMB_DEV}"
+  --set-env-vars="BQ_ESCROW_ADDRESS=${BQ_ESCROW_ADDRESS},BQ_BILLING_PROJECT=${BQ_BILLING_PROJECT},HONEYCOMB_API_URL=${HONEYCOMB_API_URL},HONEYCOMB_DEV=${HONEYCOMB_DEV}" \
+  ${SECRET_FLAGS[@]+"${SECRET_FLAGS[@]}"}
 
 echo "[deploy] done. URL:"
 gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" \
