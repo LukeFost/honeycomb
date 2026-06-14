@@ -1,0 +1,17 @@
+.env
+*.env
+!.env.example
+node_modules/
+dist/
+*.wasm
+tmp.js
+# CRE compile artifacts
+.cre_build_tmp.js
+.cre/
+# Foundry build artifacts
+out/
+cache/
+broadcast/
+# Python venvs (e.g. grader/.venv for the Demeter LP scorer) + bytecode
+.venv*/
+__pycache__/

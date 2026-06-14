@@ -1,15 +1,21 @@
 @import "tailwindcss";
 
-/* Honeycomb dashboard — "bone white + yellow" light theme.
-   Warm bone paper + espresso ink. Bright yellow is used only for FILLS/ACCENTS (logo,
-   brand chip, primary buttons, active states, one tinted hero KPI); a deeper GOLD carries
-   any honey-toned text/numbers so they stay legible on a light background. */
+:root {
+  --background: #f5efe1;
+  --foreground: #20242b;
+  --honey: #d98a08;
+  --ink: #20242b;
+}
+
+html {
+  color-scheme: light;
+}
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 
-  /* surfaces */
+  /* dashboard surfaces — "bone white + yellow" light theme (scoped to .hc-dashboard) */
   --color-paper: #f1ecdf;     /* page (bone white) */
   --color-paper-2: #ece6d6;   /* deeper bone — insets, code */
   --color-card: #fbf9f3;      /* cream-white raised surface */
@@ -44,19 +50,186 @@
   --font-mono: var(--font-geist-mono);
 }
 
-:root {
-  --background: #f1ecdf;
-  --foreground: #221f18;
-}
-
-html {
-  color-scheme: light;
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* ----- splash ----- */
+
+.hc-root {
+  background:
+    radial-gradient(55% 50% at 50% 56%, rgba(217, 138, 8, 0.12), transparent 60%),
+    radial-gradient(120% 90% at 50% -10%, rgba(255, 255, 255, 0.55), transparent 55%),
+    #f5efe1;
+}
+
+/* footer content reveals once the bee wakes and joins the swarm */
+.hc-fade {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.9s ease, transform 0.9s ease;
+}
+.hc-fade.hc-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* narrative captions */
+.hc-cap {
+  color: #20242b;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.8s ease, transform 0.8s ease;
+  text-shadow: 0 1px 1px rgba(245, 239, 225, 0.8);
+  text-wrap: balance;
+}
+.hc-cap.hc-in {
+  opacity: 1;
+  transform: none;
+}
+.hc-caret {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--honey);
+  animation: hcBlink 1s steps(1) infinite;
+}
+.hc-caret-typing {
+  animation: none;
+}
+@keyframes hcBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.hc-scroll {
+  color: rgba(32, 36, 43, 0.45);
+  transition: color 0.2s ease;
+}
+.hc-scroll:hover {
+  color: rgba(32, 36, 43, 0.85);
+}
+
+.hc-eyebrow {
+  color: #b9810f;
+}
+
+.hc-title {
+  color: #1a1d23;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  animation: hcTitleIn 1s ease both;
+  animation-delay: 0.2s;
+}
+@keyframes hcTitleIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hc-fade,
+  .hc-title {
+    opacity: 1;
+    transform: none;
+    animation: none;
+    transition: none;
+  }
+  .hc-caret {
+    display: none;
+  }
+}
+
+/* buttons */
+.hc-btn {
+  display: inline-flex;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0 1.6rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease,
+    border-color 0.2s ease;
+}
+.hc-btn:hover {
+  transform: translateY(-1px);
+}
+.hc-btn-primary {
+  background: linear-gradient(180deg, #f5b431, #e3940f);
+  color: #3a2600;
+  box-shadow: 0 6px 22px rgba(217, 138, 8, 0.3);
+}
+.hc-btn-primary:hover {
+  box-shadow: 0 8px 30px rgba(217, 138, 8, 0.42);
+}
+.hc-btn-ghost {
+  border: 1px solid rgba(32, 36, 43, 0.25);
+  color: rgba(32, 36, 43, 0.9);
+}
+.hc-btn-ghost:hover {
+  border-color: rgba(32, 36, 43, 0.55);
+  background: rgba(32, 36, 43, 0.04);
+}
+
+/* ----- improvement section + chart ----- */
+
+.hc-section {
+  background:
+    radial-gradient(80% 60% at 50% 0%, rgba(217, 138, 8, 0.07), transparent 60%),
+    #efe7d6;
+  border-top: 1px solid rgba(32, 36, 43, 0.08);
+}
+.hc-h2 {
+  color: #1a1d23;
+}
+.hc-body {
+  color: rgba(32, 36, 43, 0.72);
+}
+.hc-card {
+  background: #fffdf8;
+  border: 1px solid rgba(32, 36, 43, 0.1);
+  box-shadow: 0 10px 40px rgba(80, 60, 20, 0.06);
+}
+.hc-axis {
+  fill: rgba(32, 36, 43, 0.55);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 13px;
+}
+.hc-axis-label {
+  fill: rgba(32, 36, 43, 0.45);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.hc-step-num {
+  flex: none;
+  display: inline-flex;
+  height: 1.5rem;
+  width: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, #f5b431, #e3940f);
+  color: #3a2600;
+}
+
+/* ===== dashboard (mounted at /dashboard) =====
+   The "bone white + yellow" dashboard theme is scoped to its own shell so the
+   splash homepage above keeps main's base (:root/body) unchanged. */
+
+.hc-dashboard {
+  min-height: 100dvh;
+  color: #221f18;
+  background-color: #f1ecdf;
   /* faint honey wash: two warm radial pools in the top corners */
   background-image:
     radial-gradient(900px 460px at 10% -10%, rgba(245, 179, 1, 0.1), transparent 60%),
@@ -70,7 +243,7 @@ body {
   font-feature-settings: "tnum";
 }
 
-::selection {
+.hc-dashboard ::selection {
   background: rgba(245, 179, 1, 0.4);
 }
 

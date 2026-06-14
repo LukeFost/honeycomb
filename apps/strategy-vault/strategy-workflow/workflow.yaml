@@ -1,0 +1,23 @@
+# ==========================================================================
+# CRE WORKFLOW SETTINGS — StrategyVault swap-execution workflow
+# ==========================================================================
+# Per-target artifacts. No secrets in v1 (deterministic calldata, no live quote
+# yet); the Uniswap Trading API key (Confidential HTTP) lands when live quoting
+# is added.
+# ==========================================================================
+staging-settings:
+  user-workflow:
+    workflow-name: "strategy-vault-workflow-staging"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.staging.json"
+    secrets-path: "./secrets.yaml"
+
+# ==========================================================================
+production-settings:
+  user-workflow:
+    workflow-name: "strategy-vault-workflow-production"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.production.json"
+    secrets-path: "./secrets.yaml"

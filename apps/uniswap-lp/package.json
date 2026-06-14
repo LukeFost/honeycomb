@@ -1,0 +1,19 @@
+{
+  "name": "honeycomb-uniswap-lp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Generalized Uniswap LP execution: turn an abstract strategy decision into a real onchain liquidity position via the Uniswap Developer Platform LP API.",
+  "scripts": {
+    "demo": "bun demo.ts",
+    "demo:sepolia": "bun demo.ts 11155111",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "5.9.3"
+  }
+}

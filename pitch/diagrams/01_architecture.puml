@@ -13,45 +13,68 @@ actor "Requester" as REQ
 actor "Agent\nOperator" as OP
 
 rectangle "Off-chain" #f7f8fa {
-  component "Reference Agent\nTS / viem (Hetzner)\nlistens, audits, encrypts" as AGENT
+  component "Competitor Agent\nTS / viem (Hetzner)\nbuilds LP model" as AGENT
+  component "Google BigQuery\nindexes job events" as BQ #4285f4
   component "Dashboard\nNext.js + BigQuery" as DASH
-  component "Chainlink\nAutomation" as CL
 }
 
 rectangle "Ethereum — Sepolia" #f7f8fa {
-  component "BountyEscrow.sol\nescrow / events /\nattestor-gated settle" as ESCROW
+  component "BountyEscrow.sol\nescrow / JobDeployed events /\nstores valid+hash + scores" as ESCROW
   component "ERC-8004\nReputation" as REP
 }
 
-rectangle "TEE Enclave — AWS Nitro  (trust boundary)" #fdf7e7 {
-  component "Confidential Scorer (Go)\ndecrypt -> sandboxed PoC run\nvs hidden tests -> sign -> discard" as SCORER #b88e00
+rectangle "AI Tester TEE\nChainlink Confidential AI (Alex exposes)" #fdf7e7 {
+  component "AI Tester\nvalidate code is real /\nnot hardcoded -> legitimacy verdict" as TESTER #b88e00
+}
+
+rectangle "Grading TEE — Scorer (Alex)\nGoogle Confidential Space; stub now" #eef4fb {
+  component "Confidential Scorer\nrun code + backtest vs hidden tests\n-> score (per submission)\nKMS HSM sign -> ecrecover" as SCORER #2c6fbb
+}
+
+rectangle "Chainlink CRE (not a TEE)" #f3eef9 {
+  component "Write-callback\n+ KeystoneForwarder\nmoves verdict/score -> chain" as CRE #6f4fb0
 }
 
 REQ --> ESCROW : 1
+ESCROW ..> BQ : 2
+BQ --> AGENT : 3
 OP --> AGENT
-ESCROW --> AGENT : 2
-AGENT --> ESCROW : 3
-ESCROW --> SCORER : 4
-CL --> SCORER : 5
-SCORER --> ESCROW : 6
-ESCROW --> REP : 7
-ESCROW ..> DASH : 8
-
-legend bottom
-  | 1 | Requester posts bounty + funds escrow |
-  | 2 | BountyPosted event (RPC) reaches agents |
-  | 3 | Agent submits encrypted findings + PoCs |
-  | 4 | Submissions forwarded to enclave (events) |
-  | 5 | Chainlink fires the deadline trigger |
-  | 6 | Enclave returns signed scores; escrow pays winner |
-  | 7 | Reputation delta written (ERC-8004) |
-  | 8 | Indexed events feed the dashboard |
-endlegend
+AGENT --> SCORER : 4
+SCORER <--> TESTER : 5 (direct, off-chain)
+TESTER --> CRE : 6 (verdict)
+SCORER --> CRE : 6 (score)
+CRE --> ESCROW : 7
+ESCROW --> REP : 8
+ESCROW ..> BQ : 8
+BQ ..> DASH
 
 note bottom of SCORER
-  Plaintext exists only inside the enclave,
-  only during scoring, then discarded.
-  Attestation proves the exact scorer binary ran.
+  Two TEEs (Scorer = Google, AI Tester = Chainlink); CRE is NOT a TEE.
+  The two TEEs coordinate DIRECT, off-chain (5), but the AI Tester's
+  formal verdict still lands on-chain via the CRE + KeystoneForwarder.
+  Plaintext lives only inside each enclave, then discarded.
+  Encryption deferred for the first working pipeline.
+  Scorer only honors submissions the AI Tester marked legit.
+end note
+
+legend bottom
+  | 1 | Requester posts bounty + funds escrow; contract emits JobDeployed |
+  | 2 | BigQuery indexes the job event |
+  | 3 | Agents discover open jobs by polling BigQuery |
+  | 4 | Agent submits its model to the grading TEE (per submission, not batched) |
+  | 5 | Grading TEE checks legitimacy with the AI Tester directly, off-chain |
+  | 6 | AI Tester verdict + scorer score go to the Chainlink CRE callback |
+  | 7 | CRE / KeystoneForwarder writes on-chain; escrow pays highest valid score at deadline |
+  | 8 | Reputation delta (ERC-8004) written; events re-indexed to dashboard |
+endlegend
+
+note as DEMO
+  DEMO SPINE = Alex's stub TEE. Target it grows into: a per-bounty
+  x402-spawned Google Confidential Space — requester (Claude+MCP)
+  spins up a Confidential Space loaded with private tests/data via
+  x402, then tells the contract to spawn the job.
+  Scorer signs via Cloud KMS HSM secp256k1; contract verifies with
+  ecrecover. See TEE_RESEARCH.md.
 end note
 
 @enduml

@@ -1,0 +1,7 @@
+{
+  "authorizedKeys": ["0x06853dcD64c0d6e9C6b9B86AD77218a9545b7f98"],
+  "consumerAddress": "0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90",
+  "chainSelectorName": "ethereum-testnet-sepolia",
+  "schedule": "*/30 * * * * *",
+  "jobId": 1
+}

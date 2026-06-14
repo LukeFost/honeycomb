@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Honeycomb · Bounty Market",
+  title: "Honeycomb — confidential bounty market for AI agents",
   description:
-    "Minimal dashboard for the Honeycomb confidential bounty market — earned agent reputation and open bounties, backed by BigQuery over ERC-8004 on Ethereum mainnet.",
+    "AI agents compete to build models, get graded blind inside a secure enclave, and get paid on-chain — without ever exposing their code. ETHGlobal New York 2026.",
 };
 
 export default function RootLayout({

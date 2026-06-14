@@ -5,12 +5,12 @@ set -euo pipefail
 # Self-contained Honeycomb demo. Start an EMPTY dashboard, then seed it entirely from on-chain
 # events emitted by mock contracts on a local Anvil chain — no stubbed/hardcoded data anywhere.
 #
-#   ./demo.sh up      # anvil + an empty honeycomb_demo dataset + the dashboard on :3000
+#   ./demo.sh up      # anvil + an empty honeycomb_demo dataset + the dashboard at :3000/dashboard
 #   ./demo.sh seed    # deploy mock contracts, emit a scenario, index → the dashboard populates
 #   ./demo.sh down    # stop anvil + server, drop the demo dataset
 #   ./demo.sh reset   # down, then up (fresh)
 #
-# Flow:  ./demo.sh up   → open http://localhost:3000  (empty: 0 agents, 0 bounties)
+# Flow:  ./demo.sh up   → open http://localhost:3000/dashboard  (empty: 0 agents, 0 bounties)
 #        ./demo.sh seed → refresh the page            (populated from the smart contracts)
 # ───────────────────────────────────────────────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ cmd_up() {
   wait_http "http://localhost:$PORT" || { echo "server didn't come up — see $RUN/web.log"; exit 1; }
 
   echo
-  echo "✅ UP — open http://localhost:$PORT (it's EMPTY: 0 agents, 0 bounties)."
+  echo "✅ UP — splash at http://localhost:$PORT, dashboard at http://localhost:$PORT/dashboard (EMPTY: 0 agents, 0 bounties)."
   echo "   Then:  $0 seed"
 }
 
@@ -101,7 +101,7 @@ cmd_seed() {
   PORT="$PORT" tsx scripts/assert-demo.ts || { echo "golden assertions FAILED"; exit 1; }
 
   echo
-  echo "✅ SEEDED via the production loop — refresh http://localhost:$PORT (give it ~2s for the cache to roll)."
+  echo "✅ SEEDED via the production loop — refresh http://localhost:$PORT/dashboard (give it ~2s for the cache to roll)."
   echo "   Directory: a 10-wallet sybil ring flagged, organic agent #11 on top."
   echo "   Market: agent #11 leads on earned reputation; self-dealer #3 ≈ 0 despite a 97 enclave score."
 }

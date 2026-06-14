@@ -1,0 +1,17 @@
+{
+  "schedule": "*/30 * * * * *",
+  "chainSelectorName": "ethereum-mainnet",
+  "quoteChainId": 1,
+  "tradeApiBase": "https://trade-api.gateway.uniswap.org/v1",
+  "vault": "0x1111111111111111111111111111111111111111",
+  "router": "0x66a9893cC07D91D95644AEDD05D03f95e1dBA8Af",
+  "tokenIn": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "tokenOut": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+  "tokenOutDecimals": 18,
+  "fee": 500,
+  "amountIn": "1000000000",
+  "slippageTolerance": 0.5,
+  "deadlineSeconds": 600,
+  "gasLimit": "500000",
+  "strategyId": "threshold-rebalance-v1"
+}

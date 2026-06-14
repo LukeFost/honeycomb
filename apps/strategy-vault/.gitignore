@@ -1,0 +1,15 @@
+.env
+*.env
+!.env.example
+node_modules/
+dist/
+*.wasm
+tmp.js
+# CRE compile artifacts
+.cre_build_tmp.js
+.cre/
+# Foundry build artifacts
+out/
+cache/
+broadcast/
+# NOTE: lib/ (forge-std) is vendored on purpose so the app is self-contained.

@@ -1,0 +1,398 @@
+{
+  "https://mcp.surfliquid.com/agent.json": {
+    "status": "ok",
+    "name": "Surf AI",
+    "x402_support": false,
+    "active": true,
+    "services": "web,MCP",
+    "supported_trust": "reputation"
+  },
+  "https://api.normies.art/agents/metadata/7528": {
+    "status": "ok",
+    "name": "Normie #7528 - Dapor",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/3012": {
+    "status": "ok",
+    "name": "Normie #3012 - Dexten",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/8055": {
+    "status": "ok",
+    "name": "Normie #8055 - Quan",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/1608": {
+    "status": "ok",
+    "name": "Normie #1608 - Xedor",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/4354": {
+    "status": "ok",
+    "name": "Normie #4354 - Zori",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/6352": {
+    "status": "ok",
+    "name": "Normie #6352 - Inven",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/6595": {
+    "status": "ok",
+    "name": "Normie #6595 - Dodar",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/4035": {
+    "status": "ok",
+    "name": "Normie #4035 - Kidin",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/9630": {
+    "status": "ok",
+    "name": "Normie #9630 - Piwe",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/8279": {
+    "status": "ok",
+    "name": "Normie #8279 - Zyue",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/3328": {
+    "status": "ok",
+    "name": "Normie #3328 - Danik",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/3332": {
+    "status": "ok",
+    "name": "Normie #3332 - Gesar",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/4054": {
+    "status": "ok",
+    "name": "Normie #4054 - Zotor",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/6303": {
+    "status": "ok",
+    "name": "Normie #6303 - Cyarn",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/927": {
+    "status": "ok",
+    "name": "Normie #927 - Laje",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/1522": {
+    "status": "ok",
+    "name": "Normie #1522 - Ronel",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/2417": {
+    "status": "ok",
+    "name": "Normie #2417 - Wautch",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/3392": {
+    "status": "ok",
+    "name": "Normie #3392 - Tabel",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "ipfs://bafkreicpwmggzkh43f4bri6rq6x5mgdqdqarwkkv3okctyhvebsabxdfqu": {
+    "status": "ok",
+    "name": "Zyfai Rebalancer Agent for 0xeeDA685c6021989f9C56fde14FEe06906cb04a46",
+    "x402_support": false,
+    "active": true,
+    "services": "web,MCP",
+    "supported_trust": "crypto-economic,reputation"
+  },
+  "https://api.normies.art/agents/metadata/9115": {
+    "status": "ok",
+    "name": "Normie #9115 - Felen",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/9577": {
+    "status": "ok",
+    "name": "Normie #9577 - Ivbe",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/3289": {
+    "status": "ok",
+    "name": "Normie #3289 - Litar",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/2057": {
+    "status": "ok",
+    "name": "Normie #2057 - Dimi",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/1377": {
+    "status": "ok",
+    "name": "Normie #1377 - Ivnik",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/728": {
+    "status": "ok",
+    "name": "Normie #728 - Dadik",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/2184": {
+    "status": "ok",
+    "name": "Normie #2184 - Redik",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/4951": {
+    "status": "ok",
+    "name": "Normie #4951 - Obis",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/541": {
+    "status": "ok",
+    "name": "Normie #541 - Zucor",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/1932": {
+    "status": "ok",
+    "name": "Normie #1932 - Geke",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/8233": {
+    "status": "ok",
+    "name": "Normie #8233 - Ashen",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/2332": {
+    "status": "ok",
+    "name": "Normie #2332 - Geen",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/6594": {
+    "status": "ok",
+    "name": "Normie #6594 - Gous",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/736": {
+    "status": "ok",
+    "name": "Normie #736 - Evie",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/1894": {
+    "status": "ok",
+    "name": "Normie #1894 - Goda",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/393": {
+    "status": "ok",
+    "name": "Normie #393 - Mizen",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/3243": {
+    "status": "ok",
+    "name": "Normie #3243 - Pute",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/8973": {
+    "status": "ok",
+    "name": "Normie #8973 - Huthi",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/7360": {
+    "status": "ok",
+    "name": "Normie #7360 - Lurk",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/3205": {
+    "status": "ok",
+    "name": "Normie #3205 - Peca",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/2320": {
+    "status": "ok",
+    "name": "Normie #2320 - Anwen",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/3863": {
+    "status": "ok",
+    "name": "Normie #3863 - Supe",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/4635": {
+    "status": "ok",
+    "name": "Normie #4635 - Kitik",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/9157": {
+    "status": "ok",
+    "name": "Normie #9157 - Dipor",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/2601": {
+    "status": "ok",
+    "name": "Normie #2601 - Seil",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/6453": {
+    "status": "ok",
+    "name": "Normie #6453 - Fute",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/6588": {
+    "status": "ok",
+    "name": "Normie #6588 - Sica",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://api.normies.art/agents/metadata/1": {
+    "status": "ok",
+    "name": "Normie #1 - Seus",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  },
+  "https://transactai.io/agents/executor.json": {
+    "status": "error",
+    "error": "JSONDecodeError: Expecting value: line 2 column 1 (char 1)"
+  },
+  "https://api.normies.art/agents/metadata/9387": {
+    "status": "ok",
+    "name": "Normie #9387 - Yagar",
+    "x402_support": false,
+    "active": true,
+    "services": "web,A2A",
+    "supported_trust": ""
+  }
+}
