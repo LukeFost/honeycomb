@@ -9,6 +9,17 @@ export function truncAddr(addr: string, head = 6, tail = 4): string {
   return `${addr.slice(0, head)}…${addr.slice(-tail)}`;
 }
 
+/** Tiny ↗ glyph marking an external link — sits in the top-right corner of the link text to
+ *  signal it is clickable (and opens in a new tab). inline-block keeps the hover underline from
+ *  crossing it; it inherits the link color, so it brightens on hover too. */
+function ExtArrow() {
+  return (
+    <span aria-hidden className="ml-0.5 inline-block align-super text-[0.6em] leading-none opacity-80">
+      ↗
+    </span>
+  );
+}
+
 /** A truncated wallet address linking to its Etherscan page. The link is meaningful on the
  *  live-mainnet path; in the local demo the address still distinguishes agents even though
  *  Etherscan won't have it. Renders nothing for an empty address. */
@@ -20,9 +31,10 @@ export function AddrLink({ addr, className }: { addr: string; className?: string
       target="_blank"
       rel="noopener noreferrer"
       title={addr}
-      className={cn("transition-colors hover:text-gold hover:underline", className)}
+      className={cn("whitespace-nowrap transition-colors hover:text-gold hover:underline", className)}
     >
       {truncAddr(addr)}
+      <ExtArrow />
     </a>
   );
 }
@@ -37,9 +49,10 @@ export function TxLink({ hash, className }: { hash: string; className?: string }
       target="_blank"
       rel="noopener noreferrer"
       title={hash}
-      className={cn("font-mono transition-colors hover:text-gold hover:underline", className)}
+      className={cn("whitespace-nowrap font-mono transition-colors hover:text-gold hover:underline", className)}
     >
       {truncAddr(hash)}
+      <ExtArrow />
     </a>
   );
 }

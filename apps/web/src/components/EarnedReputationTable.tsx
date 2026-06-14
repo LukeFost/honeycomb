@@ -359,7 +359,7 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
                 <tr key={a.agentId} className="border-t border-edge hover:bg-card-2">
                   <td className="px-3 py-2">
                     <div className="font-medium text-ink">{a.name}</div>
-                    <div className="font-mono text-[11px] text-ink-3 tnum">
+                    <div className="whitespace-nowrap font-mono text-[11px] text-ink-3 tnum">
                       #{a.agentId}
                       {a.owner ? <> · <AddrLink addr={a.owner} /></> : null}
                     </div>
