@@ -2,26 +2,27 @@
 // ============================================================================
 // Honeycomb HTTP API.
 //
-// A thin HTTP transport over the SAME six functions the honeycomb MCP server
-// drives (apps/honeycomb-mcp/tools/*). One source of bounty logic, two front
-// doors: stdio (MCP, for a local agent) and HTTP (this, for a remote/thin
-// client — e.g. the installable plugin that can't ship the grader venv).
+// The ONE backend behind every Honeycomb front door. It owns the bounty logic
+// (apps/honeycomb-mcp/tools/*) and the heavy deps the clients can't ship: the
+// grading-cre demeter venv, the analysis BigQuery creds, @honeycomb/chain, and
+// the macOS keychain secrets.
 //
-// This service stays IN the repo so it keeps the things the plugin can't:
-// the grading-cre demeter venv, the analysis BigQuery creds, @honeycomb/chain,
-// and the macOS keychain secrets. The plugin just calls these routes.
+// The installable Claude Code plugin (plugins/honeycomb) is a thin stdio MCP
+// shim that FORWARDS every tool call to these routes — so it installs anywhere
+// without the venv or the keys. The team runs this service locally and points
+// the plugin at http://localhost:8787; for everyone else you host it.
 //
 //   GET  /                health
 //   GET  /skill           the usage guide (markdown)            [no secrets]
 //   GET  /jobs            list recent bounties                  [no secrets]
 //   GET  /jobs/:id        one job's full state                  [no secrets]
-//   GET  /events          decoded GradeRecorded/JobResolved...  [no secrets]
+//   GET  /events          decoded ScoreRecorded/ValidityRecorded/NewLeader/JobResolved/JobCreated  [no secrets]
 //   GET  /reputation      ERC-8004 reputation (BigQuery)        [BigQuery auth]
 //   POST /bounties        open + fund a bounty (BROADCASTS)     [SEP_PRIVATE_KEY]
 //   POST /grade           run the real grader                   [demeter venv, INFERENCE key]
 //
-// Run:  bun apps/honeycomb-api/server.ts            (PORT defaults to 8787)
-//       bash apps/honeycomb-mcp/run-with-secrets.sh ... (for write+grade routes)
+// Run:  bun apps/honeycomb-api/server.ts            (PORT defaults to 8787; read routes only)
+//       bash apps/honeycomb-api/run-with-secrets.sh (write+grade routes; keychain secrets)
 // ============================================================================
 
 import { readFileSync } from "node:fs";
@@ -137,7 +138,9 @@ async function route(req: Request): Promise<Response> {
 
 	if (m === "GET" && pathname === "/events") {
 		const eventName = url.searchParams.get("eventName") as
-			| "GradeRecorded"
+			| "ScoreRecorded"
+			| "ValidityRecorded"
+			| "NewLeader"
 			| "JobResolved"
 			| "JobCreated"
 			| null;
