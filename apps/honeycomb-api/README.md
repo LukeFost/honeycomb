@@ -93,6 +93,6 @@ keychain with those service names or set the env vars another way and run
 
 Defaults from the engine's `chain.ts`, all overridable via env:
 
-- BountyEscrow `0xce27EEDE3b033582e1Adec94F8679d3feEF142c2` (ERC-8183)
+- BountyEscrow `0xce27EEDE3b033582e1Adec94F8679d3feEF142c2` (ERC-8183, 7-arg)
 - USDC `0x3211C5E4B4d57B673d67a976699121667f419e17`
 - ERC-8004 Identity Registry `0x8004A818BFB912233c491871b3d84c89A494BD9e`

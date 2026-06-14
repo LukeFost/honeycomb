@@ -73,12 +73,17 @@ export const createBountyInput = {
 	attesterKey: {
 		type: "string",
 		description:
-			"Execution enclave's score-signer address. Sent on-chain by the 6-arg createBounty: the escrow ecrecovers each recorded grade against it. Default: the live KMS score-signer.",
+			"Execution enclave's score-signer address. Sent on-chain by the 7-arg createBounty: the escrow ecrecovers each recorded grade against it. Default: the live KMS score-signer.",
 	},
 	makerPubKey: {
 		type: "string",
 		description:
 			"Maker's X25519 delivery pubkey as bytes32. The grader seals the winning submission to it. Sent on-chain (createBounty reverts on zero). Default: MAKER_PUBKEY from env/chain.ts.",
+	},
+	enclaveEncPub: {
+		type: "string",
+		description:
+			"Per-bounty execution enclave's X25519 submission-sealing pubkey as bytes32 (the 7th createBounty arg, distinct from makerPubKey). Sent on-chain (the ERC-8183 contract reverts on zero). Default: ENCLAVE_ENCPUB from env/chain.ts.",
 	},
 } as const;
 
@@ -172,7 +177,7 @@ export async function createBounty(args: {
 		deadlineISO: new Date(Number(deadline) * 1000).toISOString(),
 		testsHash,
 		specCid,
-		// Bound on-chain by the 6-arg createBounty above: the escrow stores
+		// Bound on-chain by the 7-arg createBounty above: the escrow stores
 		// attesterKey as the job's ecrecover target and makerPubKey as the maker's
 		// delivery key.
 		attesterKey,

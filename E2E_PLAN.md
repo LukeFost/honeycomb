@@ -79,8 +79,8 @@ roadmap is to make it spawn the per-bounty TEE). Test it as its own flow:
 - **Prereqs:** wallet with USDC (EIP-3009), facilitator+enclave reachable, `SUMMON_NONCE_HMAC_SECRET`, enclave id-token audience (if Confidential Space).
 
 ## Phase 7 — cross-consistency
-- [ ] Escrow address identical across mcp `chain.ts`, api, and any docs (all on `0xce27EEDE`).
-- [ ] Job struct field order matches on-chain (verified for `0xce27EEDE` — the 21-field `getJobFull`).
+- [ ] Escrow address identical across engine `chain.ts`, api, grading-cre, and docs — all `0xce27EEDE` (ERC-8183).
+- [ ] Job struct field order matches on-chain (verify against `0xce27EEDE`'s `getJobFull` — the 21-field struct).
 - [ ] Reputation formula parity (`web/reputation.ts` vs `analysis/honeycomb_reputation.sql`).
 
 ---
