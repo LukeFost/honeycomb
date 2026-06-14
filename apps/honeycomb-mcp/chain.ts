@@ -60,10 +60,15 @@ export const MAKER_PUBKEY = (process.env.MAKER_PUBKEY ??
 	`0x${"11".repeat(32)}`) as Hex;
 
 // Per-bounty enclave's X25519 SUBMISSION key (agents seal submissions to it). The
-// maker gets this from the x402 summon; the escrow reverts on a zero key. Placeholder
-// until the summon-grading mode is wired — override with ENCLAVE_ENCPUB.
+// escrow reverts on a zero key. This default is the pubkey of the warm grading
+// enclave's baked X25519 secret (apps/grading-cre/grader/enclave/enclave_enc_secret),
+// so bounties opened with it are sealable to the enclave we actually run — no more
+// 0x2222… placeholder that submit_work refuses to seal to. Override with ENCLAVE_ENCPUB
+// per-bounty. CAVEAT: the *currently deployed* warm image predates the sealed-encCid
+// /grade branch (it only opens inline `code`), so end-to-end sealed grading needs the
+// enclave redeployed from the current Dockerfile.server before this key is fully live.
 export const ENCLAVE_ENCPUB = (process.env.ENCLAVE_ENCPUB ??
-	`0x${"22".repeat(32)}`) as Hex;
+	"0x9a9154479731d21c2e27b04c0f284a5480090e4d2eb93787bda9dffd0d5a1257") as Hex;
 
 // ERC-8004 Identity Registry on Sepolia (winner wallet lookups happen inside the
 // escrow's resolve; surfaced here only for reference / future tools).
