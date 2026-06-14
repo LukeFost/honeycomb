@@ -23,10 +23,19 @@
 // ============================================================================
 
 import { existsSync, readFileSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 
 const GRADER_DIR = join(import.meta.dir, "..", "..", "grading-cre", "grader");
 const GRADE_TS = join(GRADER_DIR, "grade.ts");
+
+// Repo root, derived CWD-INDEPENDENTLY from this file's location
+// (apps/honeycomb-mcp/tools/grade.ts -> ../../.. = repo root). Callers pass a
+// repo-relative submissionPath (the server rejects absolute ones), but readFileSync /
+// the subprocess argv resolve against process.cwd(), which is NOT the repo root in the
+// Cloud Run image (WORKDIR is apps/honeycomb-api). Anchor relative paths here so the
+// "repo-relative" contract holds no matter where the server process was launched.
+const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
+const repoPath = (p: string) => (isAbsolute(p) ? p : resolve(REPO_ROOT, p));
 
 // When set, execution grading runs in the warm Confidential Space enclave over HTTP
 // (POST /grade) instead of the local python3 subprocess. Validity still runs locally.
@@ -71,7 +80,7 @@ export async function gradeSubmission(args: {
 	// Stage 2: re-grade execution in the warm TEE for a KMS-signed, on-chain-recomputable
 	// score digest. The enclave wants the submission SOURCE (it writes its own temp file),
 	// not a path, so read the file here.
-	const code = readFileSync(args.submissionPath, "utf8");
+	const code = readFileSync(repoPath(args.submissionPath), "utf8");
 	const bundle = await gradeViaEnclave({
 		code,
 		jobId: args.jobId ?? "1",
@@ -107,7 +116,7 @@ async function gradeLocal(args: {
 		env.PATH = `${GRADER_VENV_BIN}${delimiter}${env.PATH ?? ""}`;
 	}
 
-	const argv = ["bun", GRADE_TS, args.submissionPath, args.jobId ?? "1", args.agentId ?? "22"];
+	const argv = ["bun", GRADE_TS, repoPath(args.submissionPath), args.jobId ?? "1", args.agentId ?? "22"];
 	const proc = Bun.spawn(argv, { env, stdout: "pipe", stderr: "pipe" });
 	const [stdout, stderr, code] = await Promise.all([
 		new Response(proc.stdout).text(),
