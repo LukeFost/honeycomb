@@ -39,6 +39,7 @@ export type SettledBounty = Bounty & {
   winnerScore: number;
   attestationHash: string;
   settlementTxHash: string;
+  scores: Record<number, { score: number; valid: boolean }>; // each agent's enclave grade on THIS bounty (score + attestation validity), by agentId
 };
 
 export type RepBasis = "earned" | "cold-start" | "unproven";
@@ -192,6 +193,8 @@ async function buildMarket(): Promise<Market> {
   for (const r of setRows) push(winsByAgent, Number(r.winner_agent_id), r);
   const valsByAgent = new Map<number, ValidationRow[]>();
   for (const r of valRows) push(valsByAgent, Number(r.agent_id), r);
+  const valsByBounty = new Map<number, ValidationRow[]>();
+  for (const r of valRows) push(valsByBounty, Number(r.bounty_id), r);
 
   const agents: AgentReputation[] = agentRows.map((ar) => {
     const agentId = Number(ar.agent_id);
@@ -291,6 +294,9 @@ async function buildMarket(): Promise<Market> {
   const settledBounties: SettledBounty[] = settled.map((b) => {
     const s = settlementByBounty.get(b.id);
     const winnerAgentId = s ? Number(s.winner_agent_id) : -1;
+    const scores: Record<number, { score: number; valid: boolean }> = {};
+    for (const v of valsByBounty.get(b.id) ?? [])
+      scores[Number(v.agent_id)] = { score: Number(v.response), valid: Boolean(v.valid) };
     return {
       ...b,
       winnerAgentId,
@@ -299,6 +305,7 @@ async function buildMarket(): Promise<Market> {
       winnerScore: s ? Number(s.winner_score) : 0,
       attestationHash: s?.attestation_hash ?? "",
       settlementTxHash: s?.tx_hash ?? "",
+      scores,
     };
   });
 

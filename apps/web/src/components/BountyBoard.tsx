@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Bounty } from "@/lib/reputation";
 import { AddrLink, Chip } from "./ui";
 
@@ -48,7 +49,14 @@ export default function BountyBoard({ bounties }: { bounties: Bounty[] }) {
                 <td className="px-3 py-2.5 align-middle">
                   <Chip tone="muted" className="whitespace-nowrap">{CATEGORY_LABEL[b.category] ?? b.category}</Chip>
                 </td>
-                <td className="px-3 py-2.5 align-middle font-medium leading-snug text-ink">{b.title}</td>
+                <td className="px-3 py-2.5 align-middle font-medium leading-snug">
+                  <Link
+                    href={`/dashboard/bounty/${b.id}`}
+                    className="text-ink transition-colors hover:text-gold hover:underline"
+                  >
+                    {b.title}
+                  </Link>
+                </td>
                 <td className="px-3 py-2.5 text-right align-middle font-mono font-semibold tnum whitespace-nowrap text-gold">
                   {b.rewardEth} mUSDC
                 </td>
