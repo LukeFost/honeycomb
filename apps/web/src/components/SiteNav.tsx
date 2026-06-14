@@ -19,9 +19,6 @@ const LINKS = [
 export default function SiteNav() {
   const pathname = usePathname();
 
-  // The /dashboard route has its own inline Bee header, so don't stack a second nav on it.
-  if (pathname.startsWith("/dashboard")) return null;
-
   return (
     <header className="sticky top-0 z-50 border-b border-edge bg-paper/75 backdrop-blur-md">
       <nav className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">

@@ -1,7 +1,6 @@
 import { loadMarket } from "@/lib/reputation";
 import { DATASET } from "@/lib/bq";
-import Link from "next/link";
-import { Bee, Card, Chip, cn } from "@/components/ui";
+import { Card, Chip, cn } from "@/components/ui";
 import EarnedReputationTable from "@/components/EarnedReputationTable";
 import BountyBoard from "@/components/BountyBoard";
 import ClosedBounties from "@/components/ClosedBounties";
@@ -15,15 +14,7 @@ export default async function Page() {
   const market = await loadMarket();
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6">
-      {/* ---- header — minimal mark that links back to the splash ---- */}
-      <header className="mb-8 flex items-center pt-6">
-        <Link href="/" className="inline-flex items-center gap-2.5 transition-opacity hover:opacity-80">
-          <Bee size={30} />
-          <span className="text-lg font-semibold tracking-tight text-ink">Honeycomb</span>
-        </Link>
-      </header>
-
+    <div className="mx-auto w-full max-w-6xl px-4 pb-20 pt-8 sm:px-6">
       {/* ---- layer 2: earned reputation + bounty market ---- */}
       <section className="mb-12">
         <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
