@@ -1,6 +1,6 @@
 {
   "authorizedKeys": ["0x06853dcD64c0d6e9C6b9B86AD77218a9545b7f98"],
-  "consumerAddress": "0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90",
+  "consumerAddress": "0x1210d43ED5e8e226cE35bF30a44A554997e1395a",
   "chainSelectorName": "ethereum-testnet-sepolia",
   "schedule": "*/30 * * * * *",
   "jobId": 1
