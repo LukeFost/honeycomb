@@ -104,18 +104,15 @@ const REDACTIONS: Array<[RegExp, string]> = [
 	// Authorization headers / bearer tokens in any logged request dump.
 	[/(\b[Bb]earer\s+)[A-Za-z0-9._\-+/=]{8,}/g, "$1<redacted>"],
 	[/("?[Aa]uthorization"?\s*[:=]\s*"?)(?:[Bb]earer\s+)?[A-Za-z0-9._\-+/=]{8,}/g, "$1<redacted>"],
-	// A private key shape: 0x + 64 hex, or a bare 64-hex run. A wallet address is
-	// 40 hex, so this {64} length specifically targets keys, not addresses. We use
-	// lookarounds instead of \b to require the run is EXACTLY 64 hex and not a slice
-	// of a longer hex blob (a 33-byte+ value, or a tx-data dump) — a 65th hex digit
-	// on either side means it isn't a 32-byte key, so we leave it alone to avoid
-	// mangling legitimate long hex. Residual (accepted): a key fused letter-to-letter
-	// into surrounding text with NO delimiter AND a hex letter immediately adjacent
-	// (…E<64hex>…) is missed, because that adjacency reads as one longer run. This
-	// shape does not occur in Cloud Run logs (lines are whitespace/JSON delimited);
-	// the env dumps / JSON fields / "0x"-prefixed forms that DO occur are all caught.
-	[/0x[0-9a-fA-F]{64}(?![0-9a-fA-F])/g, "0x<redacted-32-bytes>"],
-	[/(?<![0-9a-fA-Fx])[0-9a-fA-F]{64}(?![0-9a-fA-F])/g, "<redacted-32-bytes>"],
+	// NOTE: we deliberately do NOT blind-redact bare 64-hex runs. A raw private key
+	// and an Ethereum tx/block hash are both 0x + 64 hex — indistinguishable by shape
+	// alone — and over-redacting here scrubbed every tx hash from the public log,
+	// which is exactly the on-chain, harmless data we want VISIBLE for debugging.
+	// This codebase always logs secrets with a NAME (privateKey=…, a "secret": "…"
+	// field, an INFERENCE_API_KEY=… env dump), never as a naked hex blob — so the
+	// labeled KEY=VALUE rule below catches the real keys while tx/block hashes stay
+	// readable. The URL-path, query-param, bearer, and mnemonic rules above still
+	// scrub the other secret shapes regardless of length.
 	// A BIP-39 mnemonic / seed phrase IS a private key (it derives the whole wallet),
 	// and its value is space-separated words — so the generic KEY=VALUE rule below
 	// (which stops the value at the first space) would leak words 2..N. Capture the
@@ -199,31 +196,53 @@ export async function readLogs(args: ReadLogsArgs = {}): Promise<{
 	const filter = filterParts.join(" AND ");
 
 	const token = await accessToken();
-	const res = await fetch("https://logging.googleapis.com/v2/entries:list", {
-		method: "POST",
-		headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-		body: JSON.stringify({
-			resourceNames: [`projects/${PROJECT_ID}`],
-			filter,
-			// Newest first. The API caps page size; we ask for our limit directly.
-			orderBy: "timestamp desc",
-			pageSize: limit,
-		}),
-	});
-	if (!res.ok) {
-		const body = await res.text().catch(() => "");
-		throw new Error(
-			`Cloud Logging entries:list failed ${res.status} for ${service}: ${body.slice(0, 400)}`,
-		);
-	}
-	const data = (await res.json()) as { entries?: Record<string, unknown>[] };
-	let entries = (data.entries ?? []).map(shapeEntry);
+	const needle = args.contains?.toLowerCase();
 
-	// Optional substring filter, applied client-side so a caller can grep without
-	// learning Logging's filter syntax. Case-insensitive.
-	if (args.contains) {
-		const needle = args.contains.toLowerCase();
-		entries = entries.filter((e) => e.text.toLowerCase().includes(needle));
+	// Page through entries:list until we've collected `limit` MATCHING entries or run
+	// out of pages. The API does not guarantee a full page — it can under-fill a page
+	// and still hand back a nextPageToken — so a single fetch of pageSize=limit could
+	// return fewer than `limit` rows (and, worse, the `contains` grep below would only
+	// see that partial first page and miss matches that exist further back). Following
+	// the token fixes both: we keep asking until the result set is satisfied or the
+	// log is exhausted. A page cap bounds the worst case (a rare `contains` substring
+	// over a noisy log) so we can't loop the whole 7-day window unbounded.
+	const MAX_PAGES = 20;
+	const entries: LogEntry[] = [];
+	let pageToken: string | undefined;
+	for (let page = 0; page < MAX_PAGES; page++) {
+		const res = await fetch("https://logging.googleapis.com/v2/entries:list", {
+			method: "POST",
+			headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				resourceNames: [`projects/${PROJECT_ID}`],
+				filter,
+				// Newest first. pageSize is a hint; the API may return fewer per page.
+				orderBy: "timestamp desc",
+				pageSize: limit,
+				...(pageToken ? { pageToken } : {}),
+			}),
+		});
+		if (!res.ok) {
+			const body = await res.text().catch(() => "");
+			throw new Error(
+				`Cloud Logging entries:list failed ${res.status} for ${service}: ${body.slice(0, 400)}`,
+			);
+		}
+		const data = (await res.json()) as {
+			entries?: Record<string, unknown>[];
+			nextPageToken?: string;
+		};
+		for (const raw of data.entries ?? []) {
+			const shaped = shapeEntry(raw);
+			// Optional substring filter, applied client-side so a caller can grep
+			// without learning Logging's filter syntax. Case-insensitive. Filtering
+			// per page (not just the first) is the whole point of paginating.
+			if (needle && !shaped.text.toLowerCase().includes(needle)) continue;
+			entries.push(shaped);
+			if (entries.length >= limit) break;
+		}
+		pageToken = data.nextPageToken;
+		if (entries.length >= limit || !pageToken) break;
 	}
 
 	return { service, project: PROJECT_ID, sinceMinutes, count: entries.length, entries };
