@@ -37,7 +37,6 @@ strategy-workflow/main.ts            CRE workflow: read registry -> fan out (quo
 strategy-workflow/{config,workflow,secrets}  CRE config / targets / secret (project.yaml at app root)
 script/DeployBase.s.sol              deploy a vault to Base (real broadcast)
 script/DeployRegistry.s.sol          deploy registry + register vaults (real broadcast)
-script/RealSwap.s.sol                gated real-money EOA smoke test (does NOT run by default)
 run-loop.sh                          centralized loop runner (automatic until DON deploy)
 test/*.t.sol                         vault fork swaps (mainnet/Base) + registry + decode (16 pass)
 DESIGN.md                            full design: matrix, architecture, Uniswap + CRE integration
@@ -135,21 +134,6 @@ The Universal Router **always pulls ERC20 input via Permit2**. So a *contract* v
 `USDC.approve(PERMIT2, …)` then `Permit2.approve(USDC, UniversalRouter, amount, expiration)` (both in
 `StrategyVault.setupAllowance`). The Trading API's `x-permit2-disabled: true` only means "don't expect
 an EIP-712 Permit2 *signature*" (a contract can't sign one) — it does **not** bypass Permit2 on-chain.
-
-## Real-money script (DOES NOT RUN BY DEFAULT)
-
-`script/RealSwap.s.sol` deploys the vault, funds it with a small USDC amount, and drives one real swap
-via `onReport`, with the forwarder slot set to the caller EOA as a KeystoneForwarder stand-in — i.e.
-it exercises the **exact production contract path** with real funds.
-
-Safety: the repo-root `REAL_MONEY_PKEY` is intentionally corrupted (invalid hex) so `vm.envUint`
-reverts before anything broadcasts. To actually run it, create a local `.env` here (gitignored; see
-`.env.example`) with a valid key + `MAINNET_RPC_URL`, fund the address with ≥ `AMOUNT_IN` USDC + gas,
-then:
-
-```bash
-forge script script/RealSwap.s.sol --rpc-url $MAINNET_RPC_URL --broadcast
-```
 
 ## Proven vs. next
 

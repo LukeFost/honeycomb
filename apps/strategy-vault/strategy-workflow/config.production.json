@@ -3,7 +3,7 @@
   "chainSelectorName": "ethereum-mainnet-base-1",
   "quoteChainId": 8453,
   "tradeApiBase": "https://trade-api.gateway.uniswap.org/v1",
-  "registry": "0x1111111111111111111111111111111111111111",
+  "registry": "0x3d60d8b40181aE80D16928563F71B77DE31C60E2",
   "router": "0x6fF5693b99212Da76ad316178A184AB56D299b43",
   "maxVaults": 3,
   "deadlineSeconds": 600,
