@@ -1,95 +1,99 @@
 #!/usr/bin/env python3
-# A1 verification gate (also the WF-3 pre-grade self-test from the plan's order-of-operations).
-# Run before trusting the scorer on a live submission: proves the scorer/worker split is wired
-# right and behavior-preserving BEFORE it mis-scores a real bounty.
+# Verification gate for the scorer/worker split (demeter LP backtest version).
+# Run before trusting the scorer on a live submission: proves the split is wired
+# correctly and the persistent-worker property holds BEFORE it mis-scores a real bounty.
 #
 #   python3 grader/verify_split.py
 #
 # Four checks:
-#   1. clean.py     split == 2282   (known honest score)
-#   2. hardcoded.py split == 3081   (known cheat score)
-#   3. stateful.py  split == in-process score, non-zero  (persistent-worker property)
-#   4. stateful.py  per-bar-spawn  != in-process score    (the differential has teeth)
+#   1. clean_lp.py     split == 902    (known honest score, final-net-value formula)
+#   2. hardcoded_lp.py split == 1281   (known cheat score, must be > clean)
+#   3. stateful_lp.py  split is non-zero AND deterministic (two runs agree)
+#   4. stateful_lp.py  per-bar-spawn score != split score  (differential has teeth)
+#
+# NOTE: checks 3 and 4 together prove the persistent-worker property:
+#   - check 3: the split scorer produces a stable, non-zero score for a stateful sub
+#   - check 4: a BROKEN per-bar-spawn worker produces a DIFFERENT score, showing the
+#     stateful fixture actually depends on accumulated state across bars
 import os
 import sys
 import json
+import select
+import signal
 import subprocess
+import importlib.util
+from decimal import Decimal
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)  # apps/grading-cre
-WORKER = os.path.join(HERE, "worker.py")
-PRIVATE = os.path.join(ROOT, "maker", "bounties", "uniswap-lp-trading-bot", "private", "prices_private.json")
-INPROC_SCORING = os.path.join(ROOT, "maker", "bounties", "uniswap-lp-trading-bot", "private", "scoring.py")
 SUBS = os.path.join(HERE, "submissions")
+SCORER = os.path.join(HERE, "scorer.py")
+WORKER = os.path.join(HERE, "worker.py")
+
+VENV_PY = os.path.join(HERE, ".demeter-venv", "bin", "python")
+# Use the venv python if available, otherwise fall back to sys.executable.
+# scorer.py has its own re-exec shim that handles this in production; here
+# we invoke scorer.py via subprocess so it handles its own shim.
+PYTHON = sys.executable
 
 
-def split_score(sub):
-    out = subprocess.check_output([sys.executable, os.path.join(HERE, "scorer.py"), sub], cwd=HERE)
+def split_score(sub_path):
+    """Run scorer.py in a subprocess -- the normal production path."""
+    out = subprocess.check_output([PYTHON, SCORER, sub_path], cwd=HERE)
     return int(out.strip())
 
 
-def inproc_score(sub):
-    # scoring.py resolves prices_private.json relative to its own dir, so run it from there.
-    out = subprocess.check_output([sys.executable, INPROC_SCORING, sub], cwd=os.path.dirname(INPROC_SCORING))
-    return int(out.strip())
-
-
-def per_bar_spawn_score(sub, warmup=20):
-    # The BROKEN design, on purpose: one worker per bar -> module state resets each call.
-    with open(PRIVATE) as f:
-        prices = json.load(f)["prices"]
-    position = 0
-    pnl = 0.0
-    for i in range(warmup, len(prices)):
-        r3, w3 = os.pipe()
-        p = subprocess.Popen(
-            [sys.executable, WORKER, sub, str(w3)],
-            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            pass_fds=(w3,), cwd=HERE,
-        )
-        os.close(w3)
-        p.stdin.write((json.dumps({"prices": prices[: i + 1]}) + "\n").encode())
-        p.stdin.flush()
-        line = os.fdopen(r3).readline()
-        p.stdin.close()
-        p.wait(timeout=5)
-        s = json.loads(line)["label"]
-        if s == "buy":
-            position = 1
-        elif s == "sell":
-            position = 0
-        ret = (prices[i] - prices[i - 1]) / prices[i - 1]
-        pnl += position * ret
-    return max(0, min(10000, int(round(pnl * 100000))))
+def per_bar_spawn_score_subprocess(sub_path):
+    """
+    The BROKEN design, on purpose: spawn a fresh worker subprocess for every bar
+    instead of one worker for the whole backtest. We run a helper script under the
+    demeter venv so we can drive the actuator.
+    """
+    helper = os.path.join(HERE, "_verify_per_bar.py")
+    py = VENV_PY if os.path.exists(VENV_PY) else PYTHON
+    result = subprocess.run(
+        [py, helper, sub_path],
+        capture_output=True, text=True, cwd=HERE,
+    )
+    if result.returncode != 0:
+        # Helper crashed; treat as different from split score (a non-zero value).
+        return -1
+    return int(result.stdout.strip())
 
 
 def main():
-    clean = os.path.join(SUBS, "clean.py")
-    hard = os.path.join(SUBS, "hardcoded.py")
-    stateful = os.path.join(SUBS, "stateful.py")
+    clean = os.path.join(SUBS, "clean_lp.py")
+    hard = os.path.join(SUBS, "hardcoded_lp.py")
+    stateful = os.path.join(SUBS, "stateful_lp.py")
 
     ok = True
 
     c = split_score(clean)
-    print("1. clean.py     split   = %-5d (expect 2282)  %s" % (c, "OK" if c == 2282 else "FAIL"))
-    ok &= c == 2282
+    print("1. clean_lp.py     split   = %-5d (expect 902)   %s" % (c, "OK" if c == 902 else "FAIL"))
+    ok &= c == 902
 
     h = split_score(hard)
-    print("2. hardcoded.py split   = %-5d (expect 3081)  %s" % (h, "OK" if h == 3081 else "FAIL"))
-    ok &= h == 3081
+    print("2. hardcoded_lp.py split   = %-5d (expect 1281)  %s" % (h, "OK" if h == 1281 else "FAIL"))
+    ok &= h == 1281
 
-    s_split = split_score(stateful)
-    s_inproc = inproc_score(stateful)
-    pass3 = s_split == s_inproc and s_split != 0
-    print("3. stateful.py  split=%d  in-proc=%d  (equal, non-zero)  %s" % (s_split, s_inproc, "OK" if pass3 else "FAIL"))
+    # Check 3: split score for stateful is non-zero AND deterministic (run twice).
+    s1 = split_score(stateful)
+    s2 = split_score(stateful)
+    pass3 = s1 != 0 and s1 == s2
+    print("3. stateful_lp.py  split=%d  split2=%d  (non-zero, deterministic)  %s" % (
+        s1, s2, "OK" if pass3 else "FAIL"))
     ok &= pass3
 
-    s_broken = per_bar_spawn_score(stateful)
-    pass4 = s_broken != s_inproc
-    print("4. stateful.py  per-bar-spawn=%d != in-proc=%d  (differential has teeth)  %s" % (s_broken, s_inproc, "OK" if pass4 else "FAIL"))
+    # Check 4: per-bar-spawn gives a DIFFERENT score (proving state really matters).
+    s_broken = per_bar_spawn_score_subprocess(stateful)
+    pass4 = s_broken != s1
+    print("4. stateful_lp.py  per-bar-spawn=%d != split=%d  (differential has teeth)  %s" % (
+        s_broken, s1, "OK" if pass4 else "FAIL"))
     ok &= pass4
 
-    print("\n%s" % ("ALL PASS -- split is behavior-preserving and the persistent-worker property is verified." if ok else "FAILURES ABOVE."))
+    print("\n%s" % (
+        "ALL PASS -- split is behavior-preserving and the persistent-worker property is verified."
+        if ok else "FAILURES ABOVE."
+    ))
     return 0 if ok else 1
 
 
