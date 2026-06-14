@@ -1,0 +1,16 @@
+# Python virtualenvs + bytecode (local test/build artifacts, never source)
+.venv/
+.venv-*/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node (if any tooling lands here)
+node_modules/
+
+# Secrets / local env
+.env
+.env.local
+*.pem
+*.key
