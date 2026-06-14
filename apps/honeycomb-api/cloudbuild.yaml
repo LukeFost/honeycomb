@@ -1,0 +1,32 @@
+# Cloud Build config for the Honeycomb HTTP API (apps/honeycomb-api).
+# Builds apps/honeycomb-api/Dockerfile against the repo-root context, then pushes.
+#
+# BUILDKIT IS REQUIRED here. The repo-root .dockerignore is tuned for the web build
+# and EXCLUDES apps/grading-cre + apps/honeycomb-mcp + apps/honeycomb-api -- exactly
+# the source this image needs. Only BuildKit honors a per-Dockerfile ignore
+# (apps/honeycomb-api/Dockerfile.dockerignore), which takes precedence over the root
+# one. So we set DOCKER_BUILDKIT=1; without it the classic builder would apply the
+# root .dockerignore and the COPYs would fail (missing apps).
+#
+#   gcloud builds submit --config apps/honeycomb-api/cloudbuild.yaml \
+#     --substitutions=_IMAGE=us-central1-docker.pkg.dev/PROJECT/honeycomb/honeycomb-api:latest .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - -f
+      - apps/honeycomb-api/Dockerfile
+      - -t
+      - ${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  # The image rebuilds a python venv (zelos-demeter/pandas/numpy wheels), pulls the
+  # cre CLI, and runs two installs (pnpm workspace + grading-workflow bun). Give it
+  # headroom so the build does not crawl on the default pool.
+  machineType: E2_HIGHCPU_8
+# pip + bun + apt can be slow on a cold pool; default 10m is tight. Allow 30m.
+timeout: 1800s

@@ -1,0 +1,49 @@
+# Per-Dockerfile ignore for the honeycomb-api image (BuildKit honors this file
+# next to the Dockerfile, taking precedence over the repo-root .dockerignore --
+# which is tuned for the web build and EXCLUDES the apps this image needs).
+#
+# This image legitimately needs apps/honeycomb-api, apps/honeycomb-mcp,
+# packages/chain, AND apps/grading-cre (the grader subprocess + cre relay). So we
+# do NOT exclude those here. We DO exclude secrets, the host-built venv/node_modules
+# (rebuilt in-image), and the confidential price series (must never enter a
+# non-attested Cloud Run image).
+
+# secrets — never ship into the build context
+**/.secrets/
+**/gcp-key.json
+**/.env
+**/.env.*
+!**/.env.example
+**/run-with-secrets.sh
+
+# NOTE: the maker "private" series (prices_private.json / pool_private.csv) is
+# NOT excluded -- it is already committed to this repo (synthetic seed-42 data,
+# not a real secret), and /grade's LOCAL validity leg (grade.ts -> grader/grade.ts)
+# reads it to compute the content-commitment hash. Excluding it would break the
+# validity gate. Real confidentiality lives enclave-side (the CS image bakes its
+# own /grader/prices_private.json; only the KMS signature attests to it).
+
+# vcs + tooling scratch
+.git/
+.codex-lanes/
+**/.DS_Store
+
+# rebuilt inside the image — never copy host artifacts
+**/node_modules/
+**/.venv/
+**/.venv-lp/
+**/__pycache__/
+**/.next/
+**/dist/
+**/out/
+
+# unrelated sibling apps (NOT needed by the api image)
+apps/strategy-vault/
+apps/tee-runner/
+apps/uniswap-lp/
+apps/x402-facilitator/
+apps/web/
+
+# the enclave build artifacts (grading-cre/grader/enclave) carry the private
+# series + CS-only Dockerfiles; the api doesn't run the enclave, it calls it.
+apps/grading-cre/grader/enclave/

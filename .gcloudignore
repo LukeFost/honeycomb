@@ -1,0 +1,43 @@
+# .gcloudignore -- controls what `gcloud builds submit .` uploads as the build
+# context (this is gcloud's OWN ignore; it does NOT read .dockerignore for the
+# UPLOAD step). Without this file gcloud falls back to .gitignore, which would
+# drag .git/ and tooling scratch into the tarball.
+#
+# Per-image Docker-layer pruning still happens inside the build:
+#   - apps/web/Dockerfile pairs with the repo-root .dockerignore.
+#   - apps/honeycomb-api/Dockerfile pairs with apps/honeycomb-api/Dockerfile.dockerignore
+#     (BuildKit is enabled in apps/honeycomb-api/cloudbuild.yaml so that
+#     per-Dockerfile ignore takes precedence over the web-tuned root one).
+# So here we only need to keep genuinely-unwanted bytes out of the UPLOAD.
+
+# gcloud's default ignore-file parsing starts from .gitignore unless this exists;
+# do NOT add `#!include:.gitignore` -- we want an explicit, self-contained list.
+
+# vcs + tooling scratch
+.git/
+.gitignore
+.codex-lanes/
+**/.DS_Store
+
+# secrets -- never upload
+**/.secrets/
+**/gcp-key.json
+**/.env
+**/.env.*
+!**/.env.example
+**/run-with-secrets.sh
+
+# host build artifacts (every image rebuilds these in-layer)
+**/node_modules/
+**/.venv/
+**/.venv-lp/
+**/.venv-verify/
+**/__pycache__/
+**/.next/
+**/.next-verify/
+**/out/
+**/dist/
+
+# large CS-only enclave build tree (the api calls the enclave over HTTP; it does
+# not build or run it). Drop it from the upload to keep the context lean.
+apps/grading-cre/grader/enclave/

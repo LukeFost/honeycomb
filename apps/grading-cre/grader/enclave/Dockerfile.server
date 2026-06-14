@@ -1,0 +1,41 @@
+# WARM grading enclave image (Confidential Space, Stage 2).
+#
+# Same trusted scorer + private series as the single-shot Dockerfile, but the entrypoint is
+# the long-lived HTTP daemon (enclave_grade_server.py) instead of the one-shot enclave_grade.py.
+# ONE VM stays up and grades each submission that arrives over POST /grade -- the honeycomb-api
+# /grade route reaches it at GRADER_ENCLAVE_URL, mirroring how apps/web reaches the summon runner.
+#
+# Differences from the single-shot Dockerfile:
+#   - ENTRYPOINT is the daemon, not enclave_grade.py.
+#   - No baked submissions/ and no tee-cmd: the submission code arrives in the HTTP body.
+#   - No allow_cmd_override label: warm mode takes no container args, so nothing to override.
+# The private series is still baked in (confidential, image is private + Stage-3 attestation-gated).
+FROM python:3.12-slim-bookworm
+
+# google-cloud-kms: in-enclave signing via the VM's attested service account.
+# eth-keys / eth-hash: secp256k1 pubkey -> ETH address, ecrecover recovery id, keccak digest.
+RUN pip install --no-cache-dir \
+    google-cloud-kms==2.* \
+    eth-keys==0.5.* \
+    "eth-hash[pycryptodome]"
+
+WORKDIR /grader
+
+# Trusted grading code + the private series, baked into the image. No submissions/ -- the
+# warm daemon receives the submission source over HTTP, writes it to a temp file, grades, deletes.
+COPY scorer.py worker.py kms_sign.py enclave_grade.py enclave_grade_server.py ./
+COPY prices_private.json ./prices_private.json
+
+# scorer.py reads the baked series from here, not the maker/ dev path.
+ENV PRIVATE_SERIES=/grader/prices_private.json
+ENV PYTHONDONTWRITEBYTECODE=1
+# Daemon bind. Confidential Space runs the workload in a Docker BRIDGE network (not host
+# networking), and only publishes ports the image EXPOSEs to the VM host. Without EXPOSE 8000
+# the daemon binds 0.0.0.0:8000 inside the container netns only, and the VM host -- so the API
+# and any health check -- cannot reach it (verified: connection TIMES OUT, serial log shows
+# "Exposed Ports: map[]"). EXPOSE publishes it so the API reaches it at the VM IP :8000.
+EXPOSE 8000
+ENV ENCLAVE_HOST=0.0.0.0
+ENV ENCLAVE_PORT=8000
+
+ENTRYPOINT ["python3", "enclave_grade_server.py"]
