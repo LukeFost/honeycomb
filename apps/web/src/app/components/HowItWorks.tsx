@@ -42,7 +42,7 @@ const NODES: NodeT[] = [
   { x: -0.85, z: -3.05, pulse: 0, label: "Scorer", tag: "Google · TEE", logos: ["google"], kind: "monitor", mon: "score", appearAt: 7900 },
   { x: -4.0, z: -4.0, pulse: 0, label: "CRE", tag: "settlement", logos: ["chainlink"], kind: "cre", appearAt: 10800 },
   { x: -6.0, z: -6.0, pulse: 0, label: "Payout", tag: "USDC", logos: [], kind: "prism", appearAt: 26000 },
-  { x: 6.5, z: 3.0, pulse: 0, label: "Uniswap Bot", tag: "runs on CRE", logos: ["uniswap", "chainlink"], kind: "monitor", mon: "bot", appearAt: 22900 },
+  { x: 6.5, z: 3.0, pulse: 0, label: "Uniswap Bot", tag: "runs on CRE", logos: ["uniswap", "chainlink"], kind: "monitor", mon: "bot", appearAt: 30300 },
 ];
 const USER = 0, ESCROW = 1, BOUNTY = 2, BIGQUERY = 3, HIVE = 4, AITESTER = 5, SCORER = 6, CRE = 7, PAYOUT = 8, BOT = 9;
 
@@ -224,7 +224,7 @@ export default function HowItWorks() {
       ctx!.drawImage(rec.img, cx - dw / 2, cy - dh / 2, dw, dh);
     }
     function drawComb(fill: number, glow: number) {
-      COMB.forEach((c, i) => {
+      COMB.forEach((c, i) => 
         const built = i < Math.round(fill * COMB.length);
         const corners = Array.from({ length: 6 }, (_, k) => { const a = (Math.PI / 3) * k + Math.PI / 6; return proj(c.x + c.r * Math.cos(a), 0, c.z + c.r * Math.sin(a)); });
         ctx!.beginPath(); corners.forEach((p, k) => (k === 0 ? ctx!.moveTo(p.x, p.y) : ctx!.lineTo(p.x, p.y))); ctx!.closePath();
