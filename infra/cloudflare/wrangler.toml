@@ -1,0 +1,26 @@
+# Wrangler config for the two Honeycomb Cloudflare Workers that front honeycompute.com.
+# These workers were originally created by hand on the Cloudflare edge; this file makes
+# them recoverable + redeployable from source. Deploy with one of the named environments:
+#
+#   cd infra/cloudflare
+#   npx wrangler deploy --env proxy   # honeycomb-proxy (www -> Cloud Run web origin)
+#   npx wrangler deploy --env apex    # honeycomb-apex-redirect (apex 301 -> www)
+#
+# Auth: `wrangler login`, or set CLOUDFLARE_API_TOKEN (keychain svc honeycomb_cloudflare_workers_token)
+# and CLOUDFLARE_ACCOUNT_ID=32b58e738ff5cb7195a2d1ff48553032 in the env.
+#
+# IMPORTANT — routes are managed in the Cloudflare dashboard (custom-domain bindings on
+# honeycompute.com / www.honeycompute.com), NOT here. Deploying with this file updates the
+# worker SCRIPT only; it will not touch the existing domain routing. Confirm routes in the
+# dashboard after any deploy.
+
+account_id = "32b58e738ff5cb7195a2d1ff48553032"
+compatibility_date = "2026-06-14"
+
+[env.proxy]
+name = "honeycomb-proxy"
+main = "honeycomb-proxy.js"
+
+[env.apex]
+name = "honeycomb-apex-redirect"
+main = "honeycomb-apex-redirect.js"
