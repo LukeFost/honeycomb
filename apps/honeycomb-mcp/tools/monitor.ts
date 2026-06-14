@@ -18,7 +18,7 @@ async function readJob(jobId: bigint) {
 	const raw = await publicClient.readContract({
 		address: ESCROW,
 		abi: ESCROW_ABI,
-		functionName: "getJob",
+		functionName: "getJobFull", // rich struct; standard getJob() returns only the 9-field ERC-8183 Job
 		args: [jobId],
 	});
 	return decodeJob(raw);

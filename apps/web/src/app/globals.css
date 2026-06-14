@@ -251,6 +251,32 @@ body {
   transform: scale(1.12);
 }
 
+/* step-through controls */
+.hc-ctrl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.25rem;
+  padding: 0 1rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(32, 36, 43, 0.22);
+  background: #fffdf8;
+  color: #1a1d23;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.12s ease;
+}
+.hc-ctrl:hover {
+  border-color: rgba(32, 36, 43, 0.5);
+  transform: translateY(-1px);
+}
+.hc-ctrl-on {
+  border-color: transparent;
+  background: linear-gradient(180deg, #f5b431, #e3940f);
+  color: #3a2600;
+}
+
 /* ===== dashboard (mounted at /dashboard) =====
    The "bone white + yellow" dashboard theme is scoped to its own shell so the
    splash homepage above keeps main's base (:root/body) unchanged. */

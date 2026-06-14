@@ -57,6 +57,11 @@ const STEPS = [
   { label: "Deploy & run", tech: "Uniswap bot on CRE", desc: "The winning strategy is returned to the user and runs live on an independent Uniswap bot via CRE." },
 ];
 
+// start time (ct) of each step — used to step through the flow
+const NSTEPS = STEPS.length;
+const STEP_START = [0, FUND_END, DISCOVER_END, SWARM_END, SOL_START + SEG1, solSpawn(3) + SEG1 + GRADE, SETTLE_START, RETURN_START];
+const stepEnd = (i: number) => (i < NSTEPS - 1 ? STEP_START[i + 1] : CYCLE);
+
 const OPTIONS = [
   { id: "A", color: "#e0930a", valid: true, score: 78 },
   { id: "B", color: "#2faa55", valid: true, score: 91 },
@@ -89,7 +94,16 @@ function chartPts(i: number, invalid: boolean) {
 
 export default function HowItWorks() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [step, setStep] = useState(0);
+  const [step, setStepState] = useState(0);
+  const [playing, setPlayingState] = useState(false);
+  const stepRef = useRef(0);
+  const playingRef = useRef(false);
+  const ctRef = useRef(0);
+
+  const gotoStep = (i: number) => { stepRef.current = i; ctRef.current = STEP_START[i]; setStepState(i); };
+  const next = () => gotoStep((stepRef.current + 1) % NSTEPS);
+  const prev = () => gotoStep((stepRef.current - 1 + NSTEPS) % NSTEPS);
+  const togglePlay = () => { playingRef.current = !playingRef.current; setPlayingState(playingRef.current); };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -98,7 +112,7 @@ export default function HowItWorks() {
     if (!ctx) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    let width = 0, height = 0, dpr = 1, scale = 38, ox = 0, oy = 0, lastStep = -1, lastCt = 0;
+    let width = 0, height = 0, dpr = 1, scale = 38, ox = 0, oy = 0, lastCt = 0;
 
     const logos: Record<string, { img: HTMLImageElement; ok: boolean }> = {};
     for (const name of ["uniswap", "chainlink", "google", "claudecode", "openai"]) {
@@ -224,7 +238,7 @@ export default function HowItWorks() {
       ctx!.drawImage(rec.img, cx - dw / 2, cy - dh / 2, dw, dh);
     }
     function drawComb(fill: number, glow: number) {
-      COMB.forEach((c, i) => 
+      COMB.forEach((c, i) => {
         const built = i < Math.round(fill * COMB.length);
         const corners = Array.from({ length: 6 }, (_, k) => { const a = (Math.PI / 3) * k + Math.PI / 6; return proj(c.x + c.r * Math.cos(a), 0, c.z + c.r * Math.sin(a)); });
         ctx!.beginPath(); corners.forEach((p, k) => (k === 0 ? ctx!.moveTo(p.x, p.y) : ctx!.lineTo(p.x, p.y))); ctx!.closePath();
@@ -289,13 +303,27 @@ export default function HowItWorks() {
 
     // ---- loop ----------------------------------------------------------------
     let raf = 0;
+    let lastNow = 0;
     function frame(now: number) {
-      const ct = reduce ? 18500 : now % CYCLE;
+      const dt = lastNow ? Math.min(60, now - lastNow) : 0;
+      lastNow = now;
+      // playhead advances within the current step; holds at its end unless autoplaying
+      let ct = ctRef.current;
+      if (reduce) {
+        ct = 18500;
+      } else {
+        ct += dt;
+        const seg = stepRef.current;
+        const end = stepEnd(seg);
+        if (ct >= end) {
+          if (playingRef.current) { const nx = (seg + 1) % NSTEPS; stepRef.current = nx; ct = STEP_START[nx]; setStepState(nx); }
+          else { ct = end - 1; }
+        }
+      }
+      ctRef.current = ct;
       if (ct < lastCt) for (const r of rows) r.y = null;
       lastCt = ct;
       const botOn = ct >= DEPLOY_START + 1500; // bot only runs once the strategy has arrived
-      const st = ct < FUND_END ? 0 : ct < DISCOVER_END ? 1 : ct < SWARM_END ? 2 : ct < SOL_START + SEG1 ? 3 : ct < solSpawn(3) + SEG1 + GRADE ? 4 : ct < SETTLE_START ? 5 : ct < RETURN_START ? 6 : 7;
-      if (st !== lastStep) { lastStep = st; setStep(st); }
 
       for (const n of NODES) n.pulse *= 0.93;
       NODES[HIVE].pulse = Math.max(NODES[HIVE].pulse, av(NODES[HIVE], ct) * (0.22 + 0.12 * Math.sin(now * 0.004)));
@@ -489,32 +517,44 @@ export default function HowItWorks() {
         </p>
 
         <div className="hc-card mt-10 rounded-2xl p-2 sm:p-4">
-          <div className="relative h-[560px] w-full sm:h-[700px]">
+          <div className="relative h-[500px] w-full sm:h-[600px]">
             <canvas ref={canvasRef} aria-hidden className="absolute inset-0 h-full w-full" />
-          </div>
-          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 pb-2 font-mono text-[0.7rem] text-black/55">
-            <span className="inline-flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: "#2faa55" }} /> valid</span>
-            <span className="inline-flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: "#d23f3f" }} /> invalid (cheat)</span>
-            <span className="inline-flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: "#4285F4" }} /> BigQuery</span>
           </div>
         </div>
 
-        <div className="mt-10">
-          <ol className="flex items-start justify-between gap-1">
-            {STEPS.map((s, i) => (
-              <li key={s.label} className="flex flex-1 flex-col items-center text-center">
-                <span className={`hc-dot ${i === step ? "hc-dot-on" : ""} ${i < step ? "hc-dot-done" : ""}`}>{i + 1}</span>
-                <span className={`mt-2 text-[0.68rem] font-medium leading-tight ${i === step ? "text-[color:#1a1d23]" : "text-black/45"}`}>{s.label}</span>
-              </li>
-            ))}
-          </ol>
-          <div className="hc-card mt-6 rounded-xl p-5">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="font-semibold text-[color:#1a1d23]">{step + 1}. {STEPS[step].label}</span>
-              <span className="font-mono text-[0.72rem] text-[color:#b9810f]">{STEPS[step].tech}</span>
+        {/* step indicator — up here, click a step to jump to that part of the flow */}
+        <ol className="mt-5 flex items-start justify-between gap-1">
+          {STEPS.map((s, i) => (
+            <li key={s.label} className="flex flex-1 flex-col items-center text-center">
+              <button
+                type="button"
+                onClick={() => gotoStep(i)}
+                aria-label={`Go to step ${i + 1}: ${s.label}`}
+                className={`hc-dot ${i === step ? "hc-dot-on" : ""} ${i < step ? "hc-dot-done" : ""} cursor-pointer`}
+              >
+                {i + 1}
+              </button>
+              <span className={`mt-2 text-[0.66rem] font-medium leading-tight ${i === step ? "text-[color:#1a1d23]" : "text-black/45"}`}>{s.label}</span>
+            </li>
+          ))}
+        </ol>
+
+        {/* current-step explanation (below the stepper) with inline controls */}
+        <div className="hc-card mt-4 rounded-xl p-5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-semibold text-[color:#1a1d23]">
+              {step + 1}. {STEPS[step].label}
+              <span className="ml-2 font-mono text-[0.72rem] font-normal text-[color:#b9810f]">{STEPS[step].tech}</span>
+            </span>
+            <div className="flex shrink-0 gap-1.5">
+              <button type="button" onClick={prev} className="hc-ctrl" aria-label="Previous step">‹</button>
+              <button type="button" onClick={next} className="hc-ctrl" aria-label="Next step">›</button>
+              <button type="button" onClick={togglePlay} className={`hc-ctrl ${playing ? "hc-ctrl-on" : ""}`} aria-pressed={playing}>
+                {playing ? "❚❚" : "▶"}
+              </button>
             </div>
-            <p className="hc-body mt-2 text-sm leading-6">{STEPS[step].desc}</p>
           </div>
+          <p className="hc-body mt-2 text-sm leading-6">{STEPS[step].desc}</p>
         </div>
       </div>
     </section>

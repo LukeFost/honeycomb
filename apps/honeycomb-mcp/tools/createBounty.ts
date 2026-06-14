@@ -13,6 +13,7 @@ import { decodeEventLog, type Address, type Hex } from "viem";
 import {
 	ATTESTER_KEY,
 	MAKER_PUBKEY,
+	ENCLAVE_ENCPUB,
 	ESCROW,
 	ESCROW_ABI,
 	ERC20_ABI,
@@ -89,6 +90,7 @@ export async function createBounty(args: {
 	privateFiles?: string[];
 	attesterKey?: string;
 	makerPubKey?: string;
+	enclaveEncPub?: string;
 }) {
 	const reward = args.rewardUSDC ?? 50;
 	const hours = args.hoursToDeadline ?? 1;
@@ -107,6 +109,7 @@ export async function createBounty(args: {
 	}
 	const attesterKey = (args.attesterKey ?? ATTESTER_KEY) as Address;
 	const makerPubKey = (args.makerPubKey ?? MAKER_PUBKEY) as Hex;
+	const enclaveEncPub = (args.enclaveEncPub ?? ENCLAVE_ENCPUB) as Hex;
 
 	// 1. Commit to the PRIVATE bundle (never published). Default: the same sorted
 	//    dir-walk the maker uses, so the testsHash is byte-identical regardless of
@@ -133,7 +136,7 @@ export async function createBounty(args: {
 	await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
 	// 3. createBounty, then recover the real jobId from JobCreated (topics[1]).
-	// 6-arg: matches the REDEPLOYED escrow at 0x1210d43E (chain.ts ESCROW_ABI).
+	// 7-arg: matches the ERC-8183 escrow at 0xce27EEDE (chain.ts ESCROW_ABI).
 	// attesterKey binds the grade signature (the escrow ecrecovers each grade
 	// against it) and makerPubKey is the maker's X25519 delivery key; the contract
 	// reverts on a zero for either, so both must be real non-zero values.
@@ -141,7 +144,7 @@ export async function createBounty(args: {
 		address: ESCROW,
 		abi: ESCROW_ABI,
 		functionName: "createBounty",
-		args: [budget, deadline, testsHash, specCid, attesterKey, makerPubKey],
+		args: [budget, deadline, testsHash, specCid, attesterKey, makerPubKey, enclaveEncPub],
 	});
 	const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash_ });
 

@@ -19,13 +19,13 @@ import { SEPOLIA_RPC } from "@honeycomb/chain/sepolia";
 
 // Canonical Sepolia RPC (env-driven, secret stays in .env). See packages/chain.
 export const RPC = SEPOLIA_RPC;
-// REDEPLOYED 6-arg escrow (apps/grading-cre/INTEGRATION.md "Deployed"). The old
-// 4-arg escrow at 0xC0543ac4 lacks the createBounty(...,address,bytes32) selector
-// and its getJob is the 15-field struct; this one is 6-arg + the 17-field struct
-// (verified on-chain 2026-06-14: 0x1210d43E answers the 6-arg selector, getJob
-// decodes 17 fields, job #1 score 2282). Both the ABI + JOB_TUPLE below match it.
+// ERC-8183-conformant escrow (apps/grading-cre/INTEGRATION.md "Deployed"). 7-arg
+// createBounty(...,attesterKey,makerPubKey,enclaveEncPub); the contract `is IERC8183`
+// so the standard getJob() returns the 9-field Job and getJobFull() the rich struct
+// the MCP reads (verified on-chain 2026-06-14: 0xce27EEDE, job #1 isContest=true).
+// Both the ABI + JOB_TUPLE below match getJobFull.
 export const ESCROW = (process.env.ESCROW ??
-	"0x1210d43ED5e8e226cE35bF30a44A554997e1395a") as Address;
+	"0xce27EEDE3b033582e1Adec94F8679d3feEF142c2") as Address;
 export const USDC = (process.env.USDC ??
 	"0x3211C5E4B4d57B673d67a976699121667f419e17") as Address;
 // Execution enclave's score-signer. createBounty registers this as the job's
@@ -41,6 +41,12 @@ export const ATTESTER_KEY = (process.env.ATTESTER_KEY ??
 // zero key. Default is a placeholder — override with the real maker key.
 export const MAKER_PUBKEY = (process.env.MAKER_PUBKEY ??
 	`0x${"11".repeat(32)}`) as Hex;
+
+// Per-bounty enclave's X25519 SUBMISSION key (agents seal submissions to it). The
+// maker gets this from the x402 summon; the escrow reverts on a zero key. Placeholder
+// until the summon-grading mode is wired — override with ENCLAVE_ENCPUB.
+export const ENCLAVE_ENCPUB = (process.env.ENCLAVE_ENCPUB ??
+	`0x${"22".repeat(32)}`) as Hex;
 
 // ERC-8004 Identity Registry on Sepolia (winner wallet lookups happen inside the
 // escrow's resolve; surfaced here only for reference / future tools).
@@ -58,12 +64,13 @@ export const JOB_STATUS = [
 export type JobStatusName = (typeof JOB_STATUS)[number];
 
 // --- ABI (subset) -----------------------------------------------------------
-// getJob returns the full Job struct; the tuple order MUST match the DEPLOYED
-// BountyEscrow at ESCROW (Sepolia 0x1210d43E), which is the 17-field struct:
-// the G11 redeploy inserted `attesterKey` + `makerPubKey` after specCid and
-// appended `winnerDeliveryCid`. The field ORDER is load-bearing — a 15-field
-// decode against this contract mis-aligns and reads garbage (verified on-chain
-// 2026-06-14: 17-field decode reads job #1 attesterKey 0x5B57aF / score 2282).
+// getJobFull returns the full internal JobData struct; the tuple order MUST match
+// the DEPLOYED BountyEscrow at ESCROW (Sepolia 0xce27EEDE), the ERC-8183-conformant
+// redeploy. NOTE: the standard `getJob` now returns the SMALL ERC-8183 Job (9
+// fields) — we read the rich struct via `getJobFull`. The G14 redeploy inserted
+// `hook` + `isContest` after enclaveEncPub. The field ORDER is load-bearing — a
+// mis-aligned decode reads garbage (verified on-chain 2026-06-14: full decode reads
+// job #1 attesterKey 0x5B57aF / isContest true).
 const JOB_TUPLE = {
 	type: "tuple",
 	components: [
@@ -76,9 +83,12 @@ const JOB_TUPLE = {
 		{ name: "status", type: "uint8" },
 		{ name: "token", type: "address" },
 		{ name: "testsHash", type: "bytes32" },
-		{ name: "specCid", type: "string" },
-		{ name: "attesterKey", type: "address" }, // G11: ecrecover target for scores
+		{ name: "specCid", type: "string" }, // == ERC-8183 description
+		{ name: "attesterKey", type: "address" }, // ecrecover target for scores
 		{ name: "makerPubKey", type: "bytes32" }, // maker's X25519 delivery key
+		{ name: "enclaveEncPub", type: "bytes32" }, // per-bounty enclave's X25519 submission key
+		{ name: "hook", type: "address" }, // ERC-8183 hook (0 = non-hooked kernel)
+		{ name: "isContest", type: "bool" }, // true = evaluator-settled bounty
 		{ name: "bestAgentId", type: "uint256" },
 		{ name: "bestScore", type: "uint16" },
 		{ name: "bestScoreAtt", type: "bytes32" },
@@ -93,9 +103,9 @@ export const ESCROW_ABI = [
 		type: "function",
 		name: "createBounty",
 		stateMutability: "nonpayable",
-		// 6-arg: matches the REDEPLOYED escrow at 0x1210d43E. attesterKey binds the
-		// grade signature (ecrecover) and makerPubKey is the maker's X25519 delivery
-		// key; the contract reverts on a zero attester or zero maker key.
+		// 7-arg: matches the ERC-8183 escrow at 0xce27EEDE. attesterKey binds the
+		// grade signature (ecrecover), makerPubKey is the maker's X25519 delivery key,
+		// enclaveEncPub the submission-sealing key; the contract reverts on any zero.
 		inputs: [
 			{ name: "budget", type: "uint256" },
 			{ name: "expiredAt", type: "uint64" },
@@ -103,12 +113,15 @@ export const ESCROW_ABI = [
 			{ name: "specCid", type: "string" },
 			{ name: "attesterKey", type: "address" },
 			{ name: "makerPubKey", type: "bytes32" },
+			{ name: "enclaveEncPub", type: "bytes32" },
 		],
 		outputs: [{ name: "jobId", type: "uint256" }],
 	},
 	{
+		// Rich internal state. The standard ERC-8183 getJob() returns only the 9-field
+		// Job; the MCP needs the contest/leaderboard fields, so it reads getJobFull.
 		type: "function",
-		name: "getJob",
+		name: "getJobFull",
 		stateMutability: "view",
 		inputs: [{ name: "jobId", type: "uint256" }],
 		outputs: [JOB_TUPLE],
@@ -135,16 +148,17 @@ export const ESCROW_ABI = [
 		outputs: [{ name: "", type: "uint256" }],
 	},
 	{
+		// ERC-8183 canonical JobCreated. (The rich create-time fields — token/budget/
+		// testsHash/specCid — now live on the BountyCreated alias + getJobFull.)
+		// createBounty.ts only needs jobId (topics[1]).
 		type: "event",
 		name: "JobCreated",
 		inputs: [
 			{ name: "jobId", type: "uint256", indexed: true },
 			{ name: "client", type: "address", indexed: true },
-			{ name: "token", type: "address", indexed: false },
-			{ name: "budget", type: "uint256", indexed: false },
-			{ name: "expiredAt", type: "uint64", indexed: false },
-			{ name: "testsHash", type: "bytes32", indexed: false },
-			{ name: "specCid", type: "string", indexed: false },
+			{ name: "provider", type: "address", indexed: false },
+			{ name: "evaluator", type: "address", indexed: false },
+			{ name: "expiredAt", type: "uint256", indexed: false },
 		],
 	},
 	// The REDEPLOYED escrow splits a grade across three events (the old single
@@ -259,6 +273,9 @@ export function decodeJob(raw: any) {
 		specCid: raw.specCid as string,
 		attesterKey: raw.attesterKey as Address,
 		makerPubKey: raw.makerPubKey as Hex,
+		enclaveEncPub: raw.enclaveEncPub as Hex,
+		hook: raw.hook as Address, // ERC-8183 hook (0 = non-hooked kernel)
+		isContest: Boolean(raw.isContest), // evaluator-settled bounty vs generic 8183 job
 		bestAgentId: raw.bestAgentId.toString(),
 		bestScore: Number(raw.bestScore),
 		bestScoreAtt: raw.bestScoreAtt as Hex,

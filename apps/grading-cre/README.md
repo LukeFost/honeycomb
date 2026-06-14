@@ -15,7 +15,7 @@ per submission:
   CRE HTTP trigger → recordGrade → leaderboard (only valid grades can lead)
 at deadline:
   CRE CRON trigger → resolve → pay best valid agent's wallet | else refund maker
-all writes: KeystoneForwarder → BountyEscrow.onReport (action 0=recordGrade, 1=resolve)
+all writes: KeystoneForwarder → BountyEscrow.onReport (action 0=recordScore, 1=recordValidity, 2=resolve, 3=deliverWinner)
 effective score = valid ? executionScore : 0   ← a cheat that scores HIGHER but is
                                                   invalid loses to an honest lower score
 ```
@@ -27,7 +27,7 @@ effective score = valid ? executionScore : 0   ← a cheat that scores HIGHER bu
 
 | | Address |
 |---|---|
-| BountyEscrow | `0x1210d43ED5e8e226cE35bF30a44A554997e1395a` |
+| BountyEscrow (ERC-8183) | `0xce27EEDE3b033582e1Adec94F8679d3feEF142c2` |
 | MockUSDC (6dp) | `0x3211C5E4B4d57B673d67a976699121667f419e17` |
 | ERC-8004 Identity Registry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 | KeystoneForwarder (sim, `--broadcast`) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88` |
@@ -69,7 +69,7 @@ cre workflow simulate grading-workflow --non-interactive --trigger-index 1 --bro
 Verify:
 
 ```bash
-ESC=0x1210d43ED5e8e226cE35bF30a44A554997e1395a
+ESC=0xce27EEDE3b033582e1Adec94F8679d3feEF142c2
 cast call $ESC "isSettled(uint256)(bool)"        <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 cast call $ESC "winnerWalletOf(uint256)(address)" <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
@@ -92,7 +92,7 @@ cre workflow simulate grading-workflow --non-interactive --trigger-index 1   # r
 The reward token is per-bounty (snapshotted) with an owner-settable default:
 
 ```bash
-cast send 0x1210d43ED5e8e226cE35bF30a44A554997e1395a "setRewardToken(address)" <USDC> \
+cast send 0xce27EEDE3b033582e1Adec94F8679d3feEF142c2 "setRewardToken(address)" <USDC> \
   --private-key $SEP_PRIVATE_KEY --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
 

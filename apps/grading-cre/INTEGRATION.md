@@ -8,7 +8,7 @@ works; this doc is the actor-facing surface.
 
 | | Address |
 |---|---|
-| BountyEscrow | `0x1210d43ED5e8e226cE35bF30a44A554997e1395a` |
+| BountyEscrow (ERC-8183-conformant) | `0xce27EEDE3b033582e1Adec94F8679d3feEF142c2` |
 | MockUSDC (6dp) | `0x3211C5E4B4d57B673d67a976699121667f419e17` |
 | ERC-8004 Identity Registry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 | Grader enclave score-signer (`attesterKey`) | `0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F` |
@@ -17,6 +17,20 @@ works; this doc is the actor-facing surface.
 Crypto primitives: **NaCl sealed boxes** (libsodium `crypto_box_seal`, X25519) for
 encryption; **secp256k1 / `ecrecover`** for the enclave score signature. 32-byte X25519
 public keys are passed as `bytes32`.
+
+### ERC-8183 conformance
+
+The escrow `is IERC8183` (Agentic Commerce job escrow). A bounty is 1→many during the
+contest, then **collapses into the standard 1:1 job at resolution**: the winner is
+declared `provider` (`ProviderSet`), the graded deliverable is marked `JobSubmitted`,
+and the job is `JobCompleted` with `PaymentReleased` — driving the standard
+`Open→Funded→Submitted→Completed` lifecycle. `getJob(jobId)` returns the standard
+9-field `Job` (`description` == `specCid`, `hook` == `address(0)` non-hooked kernel);
+`getJobFull(jobId)` returns the rich contest/leaderboard struct. The generic standard
+path (`createJob → setProvider → setBudget → fund → submit → complete`) is also fully
+supported with the standard role auth + state machine. Contest jobs are
+**evaluator-settled**: the client-callable mutators revert on them (the contest, not
+the client, picks the provider — which the standard permits the evaluator to do).
 
 ---
 
@@ -42,8 +56,9 @@ createBounty(
   uint64  expiredAt,     // contest deadline (unix)
   bytes32 testsHash,     // commitment to the private bundle
   string  specCid,       // public spec/tests pointer
-  address attesterKey,   // grader enclave signer = 0x5B57aF5e… (current enclave)
-  bytes32 makerPubKey    // your X25519 delivery pubkey
+  address attesterKey,   // grader enclave SCORE signer (from the maker's summon)
+  bytes32 makerPubKey,   // maker's X25519 DELIVERY pubkey (winner sealed to this)
+  bytes32 enclaveEncPub  // per-bounty enclave's X25519 SUBMISSION key (agents seal to this; from summon)
 ) returns (uint256 jobId)
 ```
 

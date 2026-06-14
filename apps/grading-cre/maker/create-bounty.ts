@@ -30,11 +30,11 @@ import { SEPOLIA_RPC } from "../../../packages/chain/sepolia.ts";
 
 const RPC = SEPOLIA_RPC;
 const PK = process.env.SEP_PRIVATE_KEY;
-// REDEPLOYED 6-arg escrow (INTEGRATION.md "Deployed"). The old 4-arg escrow at
-// 0xC0543ac4 lacks the createBounty(...,address,bytes32) selector and reverts;
-// the 6-arg ABI below MUST target this address. Verified on-chain 2026-06-14:
-// 0x1210d43E answers the 6-arg selector, getJob is the 17-field struct.
-const ESCROW = process.env.ESCROW ?? "0x1210d43ED5e8e226cE35bF30a44A554997e1395a";
+// ERC-8183-conformant 7-arg escrow (INTEGRATION.md "Deployed"). createBounty takes
+// (...,attesterKey,makerPubKey,enclaveEncPub). The escrow `is IERC8183`: contest
+// jobs read back via the standard getJob() AND getJobFull(). Verified on-chain
+// 2026-06-14: 0xce27EEDE answers the 7-arg selector, JobCreated is the 8183 sig.
+const ESCROW = process.env.ESCROW ?? "0xce27EEDE3b033582e1Adec94F8679d3feEF142c2";
 const USDC = process.env.USDC ?? "0x3211C5E4B4d57B673d67a976699121667f419e17";
 if (!PK) throw new Error("SEP_PRIVATE_KEY not set");
 
@@ -47,6 +47,9 @@ const bountyDir = process.argv[4] ?? "maker/bounties/uniswap-lp-trading-bot";
 // cre/grader/HANDOFF.md:88). Override MAKER_PUBKEY with the real maker key.
 const ATTESTER = process.env.ATTESTER ?? "0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F";
 const MAKER_PUBKEY = process.env.MAKER_PUBKEY ?? `0x${"11".repeat(32)}`;
+// Per-bounty enclave's X25519 submission key (agents seal submissions to it). The maker
+// gets this from the x402 summon; placeholder until the summon-grading mode is wired.
+const ENCLAVE_ENCPUB = process.env.ENCLAVE_ENCPUB ?? `0x${"22".repeat(32)}`;
 
 // 1. Commitment to the PRIVATE bundle (never published). Hash whatever lives
 //    under the passed dir's private/ — sorted so the order is deterministic
@@ -128,13 +131,14 @@ const receipt = JSON.parse(
 	// args-array form (send) — no shell, so operands are not an injection surface.
 	send([
 		ESCROW,
-		"createBounty(uint256,uint64,bytes32,string,address,bytes32)",
+		"createBounty(uint256,uint64,bytes32,string,address,bytes32,bytes32)",
 		budget.toString(),
 		deadline.toString(),
 		testsHash,
 		specCid,
 		ATTESTER,
 		MAKER_PUBKEY,
+		ENCLAVE_ENCPUB,
 	]),
 );
 const log = (receipt.logs ?? []).find((l: any) => l.address?.toLowerCase() === ESCROW.toLowerCase());
