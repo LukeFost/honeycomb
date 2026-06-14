@@ -51,10 +51,8 @@ import {
 } from "@/lib/teeProof";
 import { cn, truncAddr } from "@/components/ui";
 
-// ---------------------------------------------------------------------------
 // Config -- network + explorer. Defaults to Base Sepolia (testnet first).
 // NEXT_PUBLIC_* are inlined at build time; safe to read in a client component.
-// ---------------------------------------------------------------------------
 
 // CAIP-2 network the summon is priced on. Must match the route/facilitator.
 const SUMMON_NETWORK =
@@ -109,9 +107,7 @@ with urllib.request.urlopen("https://api.github.com/zen", timeout=10) as r:
 print(json.dumps({"hello": "from the TEE", "github_zen": zen}))
 `;
 
-// ---------------------------------------------------------------------------
-// 402 response shape (what /api/summon returns before payment).
-// ---------------------------------------------------------------------------
+// --- 402 response shape (what /api/summon returns before payment) ---
 
 type Quote = {
   accepts: PaymentRequirements[]; // one or more acceptable payment requirements
@@ -130,9 +126,7 @@ declare global {
   }
 }
 
-// ---------------------------------------------------------------------------
-// component
-// ---------------------------------------------------------------------------
+// --- component ---
 
 type Phase =
   | "idle"
@@ -421,7 +415,7 @@ export default function SummonTee() {
     }
   }
 
-  // ---- attestation, decoded for display (NOT a signature check) ----
+  // attestation, decoded for display (NOT a signature check)
   const attClaims =
     bundle?.attestation != null
       ? decodeAttestationClaims(bundle.attestation)
@@ -516,9 +510,7 @@ export default function SummonTee() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// sub-panels
-// ---------------------------------------------------------------------------
+// --- sub-panels ---
 
 function ResultPanel({ bundle }: { bundle: ProofBundle }) {
   const r = bundle.result;
@@ -823,9 +815,7 @@ function Check({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
+// --- helpers ---
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

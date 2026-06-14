@@ -4,15 +4,13 @@ A honeycomb app: a trust-minimized **"strategy box"** — fund it, give it a str
 algorithm or a trained ML policy), and it autonomously trades via the Uniswap Trading API. Execution
 integrity comes from a Chainlink CRE DON; blast radius is bounded by an on-chain scoped vault.
 
-Full architecture + design matrix: **[DESIGN.md](./DESIGN.md)**.
-
 > Foundry app, excluded from the pnpm/turbo workspace (like `grading-cre`). The CRE workflow that
 > writes reports into the vault is the next milestone; this directory currently holds the on-chain
 > **authority layer** and its proof.
 
 ## Status — the load-bearing unknown is proven
 
-This app proves DESIGN.md §9's #1 unknown: *can a DON-signed report drive ONE real Uniswap swap
+This app proves the #1 load-bearing unknown: *can a DON-signed report drive ONE real Uniswap swap
 through a scoped contract vault, end-to-end?* On a mainnet fork, a (simulated) KeystoneForwarder
 report swaps **1000 USDC → ~0.595 WETH** through `StrategyVault`, and every policy guard rejects the
 bad cases.
@@ -39,7 +37,6 @@ script/DeployBase.s.sol              deploy a vault to Base (real broadcast)
 script/DeployRegistry.s.sol          deploy registry + register vaults (real broadcast)
 run-loop.sh                          centralized loop runner (automatic until DON deploy)
 test/*.t.sol                         vault fork swaps (mainnet/Base) + registry + decode (16 pass)
-DESIGN.md                            full design: matrix, architecture, Uniswap + CRE integration
 ```
 
 ## `StrategyVault` in one paragraph
@@ -128,7 +125,7 @@ version lights up the moment access lands (then also `setExpectedWorkflowId`). �
 swap spending real funds — pair this with the A1 strategy (so ticks *decide*, often doing nothing)
 before running it unattended.
 
-## Finding: the approval model (resolves a DESIGN.md open question)
+## Finding: the approval model
 
 The Universal Router **always pulls ERC20 input via Permit2**. So a *contract* vault must, one-time:
 `USDC.approve(PERMIT2, …)` then `Permit2.approve(USDC, UniversalRouter, amount, expiration)` (both in

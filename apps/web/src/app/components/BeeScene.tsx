@@ -99,7 +99,7 @@ export default function BeeScene({
       ry: 44,
     };
 
-    // --- build ----------------------------------------------------------------
+    // --- build ---
 
     function buildComb() {
       comb.x = width * 0.5;
@@ -295,7 +295,7 @@ export default function BeeScene({
       return 3;
     }
 
-    // --- loop -----------------------------------------------------------------
+    // --- loop ---
     let raf = 0;
 
     function frame(now: number) {

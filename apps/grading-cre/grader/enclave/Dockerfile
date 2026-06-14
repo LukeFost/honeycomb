@@ -1,5 +1,5 @@
 # Execution-grading enclave image (Confidential Space, Stage 2).
-# Pinned Python for deterministic scoring across enclave runs (HARNESS_SPEC.md:166).
+# Pinned Python for deterministic scoring across enclave runs.
 # Pinned by tag here; pushed to Artifact Registry and consumed BY DIGEST (see deploy.sh).
 FROM python:3.12-slim-bookworm
 

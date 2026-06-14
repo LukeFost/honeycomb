@@ -46,8 +46,6 @@ for (const network of NETWORKS) {
 	);
 }
 
-// ---------------------------------------------------------------------------
-
 function json(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), {
 		status,

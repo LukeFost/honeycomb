@@ -18,7 +18,7 @@ interface IQuoterV2 {
         returns (uint256 amountOut, uint160, uint32, uint256);
 }
 
-/// @notice End-to-end proof of the #1 load-bearing unknown from DESIGN.md:
+/// @notice End-to-end proof of the #1 load-bearing unknown:
 ///         a forwarder-delivered DON-signed report drives ONE real Uniswap swap through a
 ///         scoped contract vault, on a mainnet fork. The KeystoneForwarder is simulated with
 ///         `vm.prank(forwarder)` — we are testing the vault's authority + execution path, not

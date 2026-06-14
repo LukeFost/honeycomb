@@ -17,7 +17,7 @@
 # split as the directional grader: the AI validity gate rejects code that games
 # the harness instead of solving the task. The scorer reports the honest number it
 # computes; "is this strategy cheating" is the validity gate's job, not the
-# scorer's. (HARNESS_SPEC.md section 1: two independent gates.)
+# scorer's -- two independent gates (PnL correctness vs. validity).
 from decimal import Decimal
 
 from demeter import Strategy, AtTimeTrigger

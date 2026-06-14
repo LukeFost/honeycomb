@@ -6,7 +6,7 @@
 #
 #   scoreDigest = keccak256(abi.encode(uint256 jobId, uint256 agentId, uint256 score))
 #
-# This is the exact digest BountyEscrow._recordGrade recomputes on-chain and checks with
+# This is the exact digest BountyEscrow._recordScore recomputes on-chain and checks with
 # ecrecover against the bounty's registered attesterKey (fix #2). Signing the bound digest
 # ties the score to (jobId, agentId, score): it can't be lied about, replayed onto another
 # job/agent, or forged by a non-enclave caller.

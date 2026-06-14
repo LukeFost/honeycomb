@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # A1 functional smoke: drive runner.run() the way the daemon will. Not a unit-test suite,
-# just a "does the real path behave" check (hackathon ethos: verify by running).
+# just a "does the real path behave" check.
 import json
 import time
 import runner
