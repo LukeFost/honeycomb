@@ -5,7 +5,7 @@
       "entry": ["broadcast-fork.ts"]
     },
     "tools/chain-verify": {
-      "entry": ["scripts/inspect-db.ts"],
+      "entry": ["scripts/*.ts"],
       "ignoreBinaries": ["forge", "tsc", "tsx"],
       "ignoreDependencies": ["tsx"]
     }

@@ -79,7 +79,12 @@ export default function Splash() {
     };
   }, [cap.segs, cap.len, cap.on]);
 
-  const typing = cap.on && typed < cap.len;
+  // Clamp the reveal count to the current caption length. On a caption swap `typed` still holds
+  // the previous (longer) caption's count for one frame before the rAF resets it; without the
+  // clamp, renderTyped would slice the new shorter caption to the old larger count and flash the
+  // whole thing fully revealed for that frame.
+  const shown = Math.min(typed, cap.len);
+  const typing = cap.on && shown < cap.len;
 
   return (
     <section className="hc-root relative flex h-screen min-h-[640px] flex-col overflow-hidden">
@@ -98,7 +103,7 @@ export default function Splash() {
       {/* Narrative captions — lower third, typed out */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center px-6 pb-[24vh]">
         <p className={`hc-cap ${cap.on ? "hc-in" : ""} max-w-2xl text-center text-2xl font-medium leading-snug sm:text-3xl`}>
-          {renderTyped(cap.segs, typed)}
+          {renderTyped(cap.segs, shown)}
           {cap.on && <span className={`hc-caret ${typing ? "hc-caret-typing" : ""}`}>▋</span>}
         </p>
       </div>
