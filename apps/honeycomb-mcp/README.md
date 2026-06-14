@@ -14,7 +14,7 @@ for on-chain reads/writes against **BountyEscrow on Sepolia**.
 | `create_bounty` | Hashes every file under the bounty's `private/` dir (sorted, raw bytes) into `testsHash`, approves the USDC reward, calls `createBounty`, returns the on-chain `jobId`. | **Yes — broadcasts a real tx** |
 | `get_job` | Full `Job` struct for one `jobId`: status, reward, deadline, current best *valid* grade, grade count, `isSettled`, winner wallet. | no |
 | `list_jobs` | Recent bounties, newest first (id, status, reward, deadline, best agent/score, grade count, specCid). | no |
-| `job_events` | Decoded `GradeRecorded` / `JobResolved` / `JobCreated` logs over a block range. Page-safe (chunks under the Goldsky 1k-block getLogs cap). | no |
+| `job_events` | Decoded `ScoreRecorded` / `JobResolved` / `JobCreated` logs over a block range. Page-safe (chunks under the Goldsky 1k-block getLogs cap). | no |
 | `query_reputation` | Live ERC-8004 reputation from BigQuery (Ethereum mainnet logs): `counts`, `feedback`, `leaderboard`. | no |
 | `grade_submission` | Runs a candidate through the **real grader** (`apps/grading-cre/grader/grade.ts`): demeter backtest score (0..10000) + AI validity verdict + both attestation digests. | no |
 | `get_skill` | Returns the usage guide below as text (params, flows, thesis, gotchas, addresses). Same content as the `honeycomb://skill` resource and the Claude Code `/honeycomb` skill. Call it first if unsure how to drive a bounty. | no |
@@ -32,7 +32,7 @@ it being produced.
 
 All overridable via env.
 
-- BountyEscrow `ESCROW` = `0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90`
+- BountyEscrow `ESCROW` = `0x1210d43ED5e8e226cE35bF30a44A554997e1395a`
 - USDC `USDC` = `0x3211C5E4B4d57B673d67a976699121667f419e17`
 - ERC-8004 Identity Registry `IDENTITY_REGISTRY` = `0x8004A818BFB912233c491871b3d84c89A494BD9e`
 

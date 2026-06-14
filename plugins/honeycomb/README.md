@@ -14,7 +14,7 @@ The plugin's only runtime dependencies are `@modelcontextprotocol/sdk` and `zod`
 | `create_bounty` | Open + fund a bounty on Sepolia (hashes the private bundle, approves USDC, calls createBounty). Write route. | `POST /bounties` |
 | `get_job` | Read one job's full state: status, reward, deadline, best valid grade, settled, winner wallet. | `GET /jobs/{jobId}` |
 | `list_jobs` | Recent bounties, newest first. | `GET /jobs?limit=` |
-| `job_events` | Decoded `GradeRecorded` / `JobResolved` / `JobCreated` logs. | `GET /events?eventName=&jobId=&fromBlock=` |
+| `job_events` | Decoded `ScoreRecorded` / `JobResolved` / `JobCreated` logs. | `GET /events?eventName=&jobId=&fromBlock=` |
 | `query_reputation` | Live ERC-8004 reputation: `counts` / `feedback` / `leaderboard`. | `GET /reputation?mode=&agentId=&limit=` |
 | `grade_submission` | Run a submission through the real TEE grader: score + validity + attestation digests. Write route. | `POST /grade` |
 | `get_skill` | Return the Honeycomb usage guide as markdown. | `GET /skill` |
