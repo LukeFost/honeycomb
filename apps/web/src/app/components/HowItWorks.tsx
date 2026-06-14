@@ -146,7 +146,7 @@ export default function HowItWorks() {
 
     function hexPathAt(x: number, y: number, r: number, off: number) {
       ctx!.beginPath();
-      for (let i = 0; i < 6; i++) { const a = (Math.PI / 3) * i + off; const px = x + r * Math.cos(a), py = y + r * Math.sin(a); i === 0 ? ctx!.moveTo(px, py) : ctx!.lineTo(px, py); }
+      for (let i = 0; i < 6; i++) { const a = (Math.PI / 3) * i + off; const px = x + r * Math.cos(a), py = y + r * Math.sin(a); if (i === 0) ctx!.moveTo(px, py); else ctx!.lineTo(px, py); }
       ctx!.closePath();
     }
 
@@ -262,7 +262,7 @@ export default function HowItWorks() {
         ctx!.fillStyle = "rgba(35,38,45,0.06)"; ctx!.fill();
         ctx!.lineWidth = Math.max(1, r * 0.08); ctx!.strokeStyle = "rgba(35,38,45,0.6)"; ctx!.stroke(); ctx!.restore();
       }
-      ctx!.beginPath(); for (let i = 0; i < 6; i++) { const a = (Math.PI / 3) * i; i === 0 ? ctx!.moveTo(r * Math.cos(a), r * Math.sin(a)) : ctx!.lineTo(r * Math.cos(a), r * Math.sin(a)); } ctx!.closePath();
+      ctx!.beginPath(); for (let i = 0; i < 6; i++) { const a = (Math.PI / 3) * i; if (i === 0) ctx!.moveTo(r * Math.cos(a), r * Math.sin(a)); else ctx!.lineTo(r * Math.cos(a), r * Math.sin(a)); } ctx!.closePath();
       ctx!.fillStyle = BODY; ctx!.fill(); ctx!.lineWidth = r * 0.16; ctx!.strokeStyle = DARK; ctx!.stroke(); ctx!.restore();
     }
 

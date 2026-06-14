@@ -51,23 +51,30 @@ export default function Splash() {
     );
   }
 
-  // typewriter: reveal the active caption character by character
+  // typewriter: reveal the active caption character by character. All state updates are
+  // scheduled (interval / rAF), never called synchronously in the effect body, so a caption
+  // change can't trigger a cascading render.
   useEffect(() => {
     if (timer.current) clearInterval(timer.current);
     if (!cap.on || !cap.len) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) {
-      setTyped(cap.len);
-      return;
-    }
-    setTyped(0);
-    let n = 0;
-    timer.current = setInterval(() => {
-      n += 1;
-      setTyped(n);
-      if (n >= cap.len && timer.current) clearInterval(timer.current);
-    }, 32);
+    // Reset (and, for reduced-motion, fully reveal) on the next frame rather than
+    // synchronously, so swapping captions never cascades a render mid-effect.
+    const raf = requestAnimationFrame(() => {
+      if (reduce) {
+        setTyped(cap.len);
+        return;
+      }
+      let n = 0;
+      setTyped(0);
+      timer.current = setInterval(() => {
+        n += 1;
+        setTyped(n);
+        if (n >= cap.len && timer.current) clearInterval(timer.current);
+      }, 32);
+    });
     return () => {
+      cancelAnimationFrame(raf);
       if (timer.current) clearInterval(timer.current);
     };
   }, [cap.segs, cap.len, cap.on]);

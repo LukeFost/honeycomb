@@ -61,8 +61,12 @@ export default function BeeScene({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const onCaptionRef = useRef(onCaption);
   const onSettleRef = useRef(onSettle);
-  onCaptionRef.current = onCaption;
-  onSettleRef.current = onSettle;
+  // Keep the callback refs current without touching them during render. The animation
+  // loop (below) reads .current at fire-time, so it always sees the latest props.
+  useEffect(() => {
+    onCaptionRef.current = onCaption;
+    onSettleRef.current = onSettle;
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;
