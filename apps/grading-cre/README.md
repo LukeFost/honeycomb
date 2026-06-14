@@ -27,7 +27,7 @@ effective score = valid ? executionScore : 0   ← a cheat that scores HIGHER bu
 
 | | Address |
 |---|---|
-| BountyEscrow | `0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90` |
+| BountyEscrow | `0x1210d43ED5e8e226cE35bF30a44A554997e1395a` |
 | MockUSDC (6dp) | `0x3211C5E4B4d57B673d67a976699121667f419e17` |
 | ERC-8004 Identity Registry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 | KeystoneForwarder (sim, `--broadcast`) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88` |
@@ -69,7 +69,7 @@ cre workflow simulate grading-workflow --non-interactive --trigger-index 1 --bro
 Verify:
 
 ```bash
-ESC=0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90
+ESC=0x1210d43ED5e8e226cE35bF30a44A554997e1395a
 cast call $ESC "isSettled(uint256)(bool)"        <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 cast call $ESC "winnerWalletOf(uint256)(address)" <jobId> --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
@@ -92,7 +92,7 @@ cre workflow simulate grading-workflow --non-interactive --trigger-index 1   # r
 The reward token is per-bounty (snapshotted) with an owner-settable default:
 
 ```bash
-cast send 0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90 "setRewardToken(address)" <USDC> \
+cast send 0x1210d43ED5e8e226cE35bF30a44A554997e1395a "setRewardToken(address)" <USDC> \
   --private-key $SEP_PRIVATE_KEY --rpc-url https://ethereum-sepolia-rpc.publicnode.com
 ```
 

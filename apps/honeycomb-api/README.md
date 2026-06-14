@@ -27,7 +27,7 @@ on-chain reads/writes against **BountyEscrow on Sepolia**.
 | GET | `/skill` | The usage guide (markdown) — same text as the MCP `honeycomb://skill` resource and the `/honeycomb` skill. | none |
 | GET | `/jobs?limit=N` | Recent bounties, newest first. | none |
 | GET | `/jobs/:id` | One job's full state: status, reward, deadline, best *valid* grade, `settled`, winner wallet. | none |
-| GET | `/events?eventName=&jobId=&fromBlock=` | Decoded `GradeRecorded` / `JobResolved` / `JobCreated` logs (page-safe under the Goldsky 1k-block cap). | none |
+| GET | `/events?eventName=&jobId=&fromBlock=` | Decoded `ScoreRecorded` / `JobResolved` / `JobCreated` logs (page-safe under the Goldsky 1k-block cap). | none |
 | GET | `/reputation?mode=&agentId=&limit=` | ERC-8004 reputation from BigQuery: `counts` / `feedback` / `leaderboard`. | BigQuery auth |
 | POST | `/bounties` | Open + fund a bounty. **BROADCASTS a real Sepolia tx.** Body = the `create_bounty` args (`rewardUSDC`, `hoursToDeadline`, `bountyDir`, ...). | `SEP_PRIVATE_KEY` |
 | POST | `/grade` | Run a submission through the **real grader** → score + validity + attestation digests. Body = `{submissionPath, bounty?, jobId?, agentId?}`. | demeter venv, `INFERENCE_API_KEY_VAR` |
@@ -87,6 +87,6 @@ keychain with those service names or set the env vars another way and run
 
 Same defaults as the MCP, all overridable via env:
 
-- BountyEscrow `0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90`
+- BountyEscrow `0x1210d43ED5e8e226cE35bF30a44A554997e1395a`
 - USDC `0x3211C5E4B4d57B673d67a976699121667f419e17`
 - ERC-8004 Identity Registry `0x8004A818BFB912233c491871b3d84c89A494BD9e`

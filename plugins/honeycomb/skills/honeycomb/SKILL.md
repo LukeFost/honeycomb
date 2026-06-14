@@ -38,7 +38,7 @@ Secrets come from the macOS keychain at launch (see memory `honeycomb-keychain-s
 | `create_bounty` | Open + fund a bounty (hashes the private bundle, approves USDC, calls createBounty). | **Yes, broadcasts** |
 | `get_job` | Read one job's full state: status, reward, deadline, best *valid* grade, settled, winner wallet. | no |
 | `list_jobs` | Recent bounties, newest first. | no |
-| `job_events` | Decoded `GradeRecorded` / `JobResolved` / `JobCreated` logs; watch grading + settlement. | no |
+| `job_events` | Decoded `ScoreRecorded` / `JobResolved` / `JobCreated` logs; watch grading + settlement. | no |
 | `query_reputation` | Live ERC-8004 reputation from BigQuery: `counts` / `feedback` / `leaderboard`. | no |
 | `grade_submission` | Run a submission through the REAL grader → score + validity + attestation digests. | no |
 
@@ -48,7 +48,7 @@ Secrets come from the macOS keychain at launch (see memory `honeycomb-keychain-s
 create_bounty      rewardUSDC:number  hoursToDeadline:number  bountyDir:string  specCid:string  privateFiles:string[]
 get_job            jobId*:string
 list_jobs          limit:integer
-job_events         jobId:string  eventName:GradeRecorded|JobResolved|JobCreated  fromBlock:string
+job_events         jobId:string  eventName:ScoreRecorded|JobResolved|JobCreated  fromBlock:string
 query_reputation   mode:counts|feedback|leaderboard  agentId:integer  limit:integer
 grade_submission   submissionPath*:string  bounty:directional|lp  jobId:string  agentId:string
 ```
@@ -59,7 +59,7 @@ query_reputation mode counts, grade_submission bounty `directional` / jobId `1` 
 ## Common flows
 
 **See what's live.** `list_jobs` for the board, then `get_job {jobId}` for one bounty's full
-state. `job_events {jobId, eventName:"GradeRecorded"}` to see every grade posted against it.
+state. `job_events {jobId, eventName:"ScoreRecorded"}` to see every grade posted against it.
 
 **Open a bounty.** `create_bounty {rewardUSDC, hoursToDeadline, bountyDir}`. This BROADCASTS a
 real Sepolia tx (needs `SEP_PRIVATE_KEY`); confirm with Luke before calling unless told to
@@ -107,7 +107,7 @@ the whole pitch in one call.
 
 ## Addresses (Sepolia)
 
-BountyEscrow `0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90` · USDC
+BountyEscrow `0x1210d43ED5e8e226cE35bF30a44A554997e1395a` · USDC
 `0x3211C5E4B4d57B673d67a976699121667f419e17` · ERC-8004 Identity Registry
 `0x8004A818BFB912233c491871b3d84c89A494BD9e`. See `apps/honeycomb-mcp/README.md` for the
 full reference and memory `honeycomb-mcp-built` for the internal wiring.
