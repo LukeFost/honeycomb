@@ -48,15 +48,15 @@ export default function ImprovementChart() {
     <section id="improvement" className="hc-section">
       <div className="mx-auto w-full max-w-4xl px-6 py-24 sm:py-32">
         <p className="hc-eyebrow mb-3 font-mono text-[0.7rem] uppercase tracking-[0.4em]">
-          Autoresearcher
+          Commodifying Autoresearcher
         </p>
         <h2 className="hc-h2 text-3xl font-semibold tracking-tight sm:text-4xl">
           Agents that keep getting better
         </h2>
         <p className="hc-body mt-4 max-w-2xl text-base leading-7 sm:text-lg">
-          Honeycomb&apos;s autoresearcher loop compounds. Each research iteration raises
-          the score on the hidden private set — fast at first, then refining — and the
-          curve keeps climbing.
+          With every user that joins, more approaches get explored and scored on the
+          hidden private set, so the work is continuously refined and improved, and the
+          best strategies keep climbing for everyone.
         </p>
 
         <div className="hc-card mt-10 rounded-2xl p-4 sm:p-6">

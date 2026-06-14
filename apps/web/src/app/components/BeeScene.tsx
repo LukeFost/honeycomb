@@ -28,12 +28,12 @@ type Other = {
 
 type Cell = { fx: number; fy: number; ring: number; r: number };
 
-// timeline (ms from tap)
-const WAKE_DUR = 1700;
-const CAP1_END = 4000;
-const SWARM_START = 4500; // swarm arrives + comb expands + zoom-out begin
-const CAP2_END = 7900;
-const SETTLE = 8400;
+// timeline (ms from tap) — paced 20% slower so the captions are easier to read
+const WAKE_DUR = 2040;
+const CAP1_END = 4800;
+const SWARM_START = 5400; // swarm arrives + comb expands + zoom-out begin
+const CAP2_END = 9480;
+const SETTLE = 10080;
 
 const E_BASE = 0.3; // how much comb is shown while the bee sleeps on it
 const ZOOM_OUT = 0.8; // final camera scale
@@ -283,7 +283,7 @@ export default function BeeScene({
     // --- caption schedule -----------------------------------------------------
     function captionPhase(since: number) {
       if (state.phase !== "running") return 0;
-      if (since < 300) return 0;
+      if (since < 360) return 0;
       if (since < CAP1_END) return 1;
       if (since < SWARM_START) return 0;
       if (since < CAP2_END) return 2;
@@ -354,7 +354,7 @@ export default function BeeScene({
         drawBee(hero.pos.x, hero.pos.y, HERO_R, beat * w, w, w > 0.45, HERO_ALPHA);
       } else {
         // lift off the comb and orbit it among the swarm
-        const ot = clamp01((since - WAKE_DUR) / 900);
+        const ot = clamp01((since - WAKE_DUR) / 1080);
         const rr = HERO_R * lerp(1, 0.62, ot);
         const orbit = 0.6 + 0.7 * e; // orbit widens as the comb expands
         hero.ang += hero.angSpeed * 16;
