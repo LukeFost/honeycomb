@@ -489,7 +489,7 @@ export default function HowItWorks() {
         </p>
 
         <div className="hc-card mt-10 rounded-2xl p-2 sm:p-4">
-          <div className="relative h-[540px] w-full sm:h-[640px]">
+          <div className="relative h-[560px] w-full sm:h-[700px]">
             <canvas ref={canvasRef} aria-hidden className="absolute inset-0 h-full w-full" />
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 pb-2 font-mono text-[0.7rem] text-black/55">
