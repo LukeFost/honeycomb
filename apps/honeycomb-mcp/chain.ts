@@ -19,16 +19,28 @@ import { SEPOLIA_RPC } from "@honeycomb/chain/sepolia";
 
 // Canonical Sepolia RPC (env-driven, secret stays in .env). See packages/chain.
 export const RPC = SEPOLIA_RPC;
+// REDEPLOYED 6-arg escrow (apps/grading-cre/INTEGRATION.md "Deployed"). The old
+// 4-arg escrow at 0xC0543ac4 lacks the createBounty(...,address,bytes32) selector
+// and its getJob is the 15-field struct; this one is 6-arg + the 17-field struct
+// (verified on-chain 2026-06-14: 0x1210d43E answers the 6-arg selector, getJob
+// decodes 17 fields, job #1 score 2282). Both the ABI + JOB_TUPLE below match it.
 export const ESCROW = (process.env.ESCROW ??
-	"0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90") as Address;
+	"0x1210d43ED5e8e226cE35bF30a44A554997e1395a") as Address;
 export const USDC = (process.env.USDC ??
 	"0x3211C5E4B4d57B673d67a976699121667f419e17") as Address;
 // Execution enclave's score-signer. createBounty registers this as the job's
 // attesterKey; the escrow ecrecovers each recorded grade against it (BountyEscrow
-// .sol:214), so it MUST be the live KMS signer (grader/HANDOFF.md:88). The escrow
-// rejects attesterKey == 0. Override per-bounty with ATTESTER_KEY.
+// .sol:248), so it MUST be the live KMS signer (grader/HANDOFF.md:88). The escrow
+// reverts on attesterKey == 0. Sent on-chain by the 6-arg createBounty; override
+// per-bounty with ATTESTER_KEY.
 export const ATTESTER_KEY = (process.env.ATTESTER_KEY ??
 	"0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F") as Address;
+
+// Maker's X25519 delivery pubkey (32 bytes -> bytes32). The grader seals the
+// winning code to this so only the maker can open it; the escrow reverts on a
+// zero key. Default is a placeholder — override with the real maker key.
+export const MAKER_PUBKEY = (process.env.MAKER_PUBKEY ??
+	`0x${"11".repeat(32)}`) as Hex;
 
 // ERC-8004 Identity Registry on Sepolia (winner wallet lookups happen inside the
 // escrow's resolve; surfaced here only for reference / future tools).
@@ -47,14 +59,11 @@ export type JobStatusName = (typeof JOB_STATUS)[number];
 
 // --- ABI (subset) -----------------------------------------------------------
 // getJob returns the full Job struct; the tuple order MUST match the DEPLOYED
-// BountyEscrow at ESCROW (Sepolia 0xC054…), which is the 15-field struct (id,
-// client, provider, evaluator, budget, expiredAt, status, token, testsHash,
-// specCid, bestAgentId, bestScore, bestScoreAtt, bestValidityAtt, gradeCount).
-// NOTE: BountyEscrow.sol source has since added `attesterKey` after specCid (the
-// G11 score-binding), but that contract is NOT redeployed yet — adding the field
-// here would mis-decode the live 15-field struct. Re-add attesterKey + the
-// createBounty(…,address) arg in lockstep with the redeploy. Verified 2026-06-13:
-// 15-field decode reads job #1 score 2282 / agent 6552 clean.
+// BountyEscrow at ESCROW (Sepolia 0x1210d43E), which is the 17-field struct:
+// the G11 redeploy inserted `attesterKey` + `makerPubKey` after specCid and
+// appended `winnerDeliveryCid`. The field ORDER is load-bearing — a 15-field
+// decode against this contract mis-aligns and reads garbage (verified on-chain
+// 2026-06-14: 17-field decode reads job #1 attesterKey 0x5B57aF / score 2282).
 const JOB_TUPLE = {
 	type: "tuple",
 	components: [
@@ -68,11 +77,14 @@ const JOB_TUPLE = {
 		{ name: "token", type: "address" },
 		{ name: "testsHash", type: "bytes32" },
 		{ name: "specCid", type: "string" },
+		{ name: "attesterKey", type: "address" }, // G11: ecrecover target for scores
+		{ name: "makerPubKey", type: "bytes32" }, // maker's X25519 delivery key
 		{ name: "bestAgentId", type: "uint256" },
 		{ name: "bestScore", type: "uint16" },
 		{ name: "bestScoreAtt", type: "bytes32" },
 		{ name: "bestValidityAtt", type: "bytes32" },
 		{ name: "gradeCount", type: "uint64" },
+		{ name: "winnerDeliveryCid", type: "string" }, // winning code re-sealed to makerPubKey
 	],
 } as const;
 
@@ -81,13 +93,16 @@ export const ESCROW_ABI = [
 		type: "function",
 		name: "createBounty",
 		stateMutability: "nonpayable",
-		// 4-arg: matches the DEPLOYED escrow. Source adds a 5th `attesterKey`
-		// (address) arg, gated on the redeploy — see JOB_TUPLE note.
+		// 6-arg: matches the REDEPLOYED escrow at 0x1210d43E. attesterKey binds the
+		// grade signature (ecrecover) and makerPubKey is the maker's X25519 delivery
+		// key; the contract reverts on a zero attester or zero maker key.
 		inputs: [
 			{ name: "budget", type: "uint256" },
 			{ name: "expiredAt", type: "uint64" },
 			{ name: "testsHash", type: "bytes32" },
 			{ name: "specCid", type: "string" },
+			{ name: "attesterKey", type: "address" },
+			{ name: "makerPubKey", type: "bytes32" },
 		],
 		outputs: [{ name: "jobId", type: "uint256" }],
 	},
@@ -132,17 +147,36 @@ export const ESCROW_ABI = [
 			{ name: "specCid", type: "string", indexed: false },
 		],
 	},
+	// The REDEPLOYED escrow splits a grade across three events (the old single
+	// GradeRecorded no longer exists): ScoreRecorded (execution enclave) +
+	// ValidityRecorded (AI attestor) + NewLeader (best VALID grade advanced).
 	{
 		type: "event",
-		name: "GradeRecorded",
+		name: "ScoreRecorded",
 		inputs: [
 			{ name: "jobId", type: "uint256", indexed: true },
 			{ name: "agentId", type: "uint256", indexed: true },
 			{ name: "score", type: "uint16", indexed: false },
+			{ name: "scoreDigest", type: "bytes32", indexed: false },
+		],
+	},
+	{
+		type: "event",
+		name: "ValidityRecorded",
+		inputs: [
+			{ name: "jobId", type: "uint256", indexed: true },
+			{ name: "agentId", type: "uint256", indexed: true },
 			{ name: "valid", type: "bool", indexed: false },
-			{ name: "scoreAttestationHash", type: "bytes32", indexed: false },
-			{ name: "validityAttestationHash", type: "bytes32", indexed: false },
-			{ name: "newLeader", type: "bool", indexed: false },
+			{ name: "validityAtt", type: "bytes32", indexed: false },
+		],
+	},
+	{
+		type: "event",
+		name: "NewLeader",
+		inputs: [
+			{ name: "jobId", type: "uint256", indexed: true },
+			{ name: "agentId", type: "uint256", indexed: true },
+			{ name: "score", type: "uint16", indexed: false },
 		],
 	},
 	{
@@ -223,10 +257,13 @@ export function decodeJob(raw: any) {
 		token: raw.token as Address,
 		testsHash: raw.testsHash as Hex,
 		specCid: raw.specCid as string,
+		attesterKey: raw.attesterKey as Address,
+		makerPubKey: raw.makerPubKey as Hex,
 		bestAgentId: raw.bestAgentId.toString(),
 		bestScore: Number(raw.bestScore),
 		bestScoreAtt: raw.bestScoreAtt as Hex,
 		bestValidityAtt: raw.bestValidityAtt as Hex,
 		gradeCount: Number(raw.gradeCount),
+		winnerDeliveryCid: raw.winnerDeliveryCid as string,
 	};
 }

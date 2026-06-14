@@ -30,7 +30,11 @@ import { SEPOLIA_RPC } from "../../../packages/chain/sepolia.ts";
 
 const RPC = SEPOLIA_RPC;
 const PK = process.env.SEP_PRIVATE_KEY;
-const ESCROW = process.env.ESCROW ?? "0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90";
+// REDEPLOYED 6-arg escrow (INTEGRATION.md "Deployed"). The old 4-arg escrow at
+// 0xC0543ac4 lacks the createBounty(...,address,bytes32) selector and reverts;
+// the 6-arg ABI below MUST target this address. Verified on-chain 2026-06-14:
+// 0x1210d43E answers the 6-arg selector, getJob is the 17-field struct.
+const ESCROW = process.env.ESCROW ?? "0x1210d43ED5e8e226cE35bF30a44A554997e1395a";
 const USDC = process.env.USDC ?? "0x3211C5E4B4d57B673d67a976699121667f419e17";
 if (!PK) throw new Error("SEP_PRIVATE_KEY not set");
 

@@ -9,9 +9,10 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import { decodeEventLog, type Hex } from "viem";
+import { decodeEventLog, type Address, type Hex } from "viem";
 import {
 	ATTESTER_KEY,
+	MAKER_PUBKEY,
 	ESCROW,
 	ESCROW_ABI,
 	ERC20_ABI,
@@ -19,7 +20,6 @@ import {
 	publicClient,
 	walletFromEnv,
 } from "../chain.ts";
-import { type Address } from "viem";
 
 // grading-cre root, resolved relative to this file (apps/honeycomb-mcp/tools -> apps/grading-cre).
 const GRADING_CRE = join(import.meta.dir, "..", "..", "grading-cre");
@@ -72,7 +72,12 @@ export const createBountyInput = {
 	attesterKey: {
 		type: "string",
 		description:
-			"Execution enclave's score-signer address (STAGED: the deployed escrow is still 4-arg, so this is surfaced in the result but not yet sent on-chain; it binds grades via ecrecover once the 5-arg createBounty is redeployed). Default: the live KMS score-signer.",
+			"Execution enclave's score-signer address. Sent on-chain by the 6-arg createBounty: the escrow ecrecovers each recorded grade against it. Default: the live KMS score-signer.",
+	},
+	makerPubKey: {
+		type: "string",
+		description:
+			"Maker's X25519 delivery pubkey as bytes32. The grader seals the winning submission to it. Sent on-chain (createBounty reverts on zero). Default: MAKER_PUBKEY from env/chain.ts.",
 	},
 } as const;
 
@@ -83,6 +88,7 @@ export async function createBounty(args: {
 	specCid?: string;
 	privateFiles?: string[];
 	attesterKey?: string;
+	makerPubKey?: string;
 }) {
 	const reward = args.rewardUSDC ?? 50;
 	const hours = args.hoursToDeadline ?? 1;
@@ -100,6 +106,7 @@ export async function createBounty(args: {
 		}
 	}
 	const attesterKey = (args.attesterKey ?? ATTESTER_KEY) as Address;
+	const makerPubKey = (args.makerPubKey ?? MAKER_PUBKEY) as Hex;
 
 	// 1. Commit to the PRIVATE bundle (never published). Default: the same sorted
 	//    dir-walk the maker uses, so the testsHash is byte-identical regardless of
@@ -126,15 +133,15 @@ export async function createBounty(args: {
 	await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
 	// 3. createBounty, then recover the real jobId from JobCreated (topics[1]).
-	// 4-arg: matches the DEPLOYED escrow (chain.ts ESCROW_ABI). The source contract
-	// adds a 5th `attesterKey` arg (G11 score-binding) but is NOT redeployed; add
-	// `attesterKey` to args[] in lockstep with the redeploy. attesterKey is resolved
-	// + surfaced below so the tool's I/O is forward-ready, but it is NOT sent yet.
+	// 6-arg: matches the REDEPLOYED escrow at 0x1210d43E (chain.ts ESCROW_ABI).
+	// attesterKey binds the grade signature (the escrow ecrecovers each grade
+	// against it) and makerPubKey is the maker's X25519 delivery key; the contract
+	// reverts on a zero for either, so both must be real non-zero values.
 	const createHash_ = await wallet.writeContract({
 		address: ESCROW,
 		abi: ESCROW_ABI,
 		functionName: "createBounty",
-		args: [budget, deadline, testsHash, specCid],
+		args: [budget, deadline, testsHash, specCid, attesterKey, makerPubKey],
 	});
 	const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash_ });
 
@@ -162,11 +169,12 @@ export async function createBounty(args: {
 		deadlineISO: new Date(Number(deadline) * 1000).toISOString(),
 		testsHash,
 		specCid,
-		// STAGED, not on-chain: the deployed escrow is 4-arg, so this resolved
-		// score-signer is NOT bound into the bounty yet. Named to make that
-		// explicit to anyone reading the result. See the args[] note above.
-		attesterKeyStaged: attesterKey,
-		attesterKeyOnChain: false,
+		// Bound on-chain by the 6-arg createBounty above: the escrow stores
+		// attesterKey as the job's ecrecover target and makerPubKey as the maker's
+		// delivery key.
+		attesterKey,
+		makerPubKey,
+		attesterKeyOnChain: true,
 		approveTx: approveHash,
 		createTx: createHash_,
 		escrow: ESCROW,

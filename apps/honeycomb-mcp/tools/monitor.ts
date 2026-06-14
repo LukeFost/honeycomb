@@ -2,7 +2,8 @@
 // Read-only job monitoring against BountyEscrow on Sepolia.
 //   get_job    — full Job struct + isSettled + winner wallet for one jobId
 //   list_jobs  — getJob over [1 .. nextJobId-1], compact rows
-//   job_events — decode GradeRecorded / JobResolved logs over a block range
+//   job_events — decode ScoreRecorded / ValidityRecorded / NewLeader / JobCreated
+//                / JobResolved logs over a block range
 // ============================================================================
 
 import { type Hex } from "viem";
@@ -81,8 +82,9 @@ export const jobEventsInput = {
 	jobId: { type: "string", description: "Filter to one job id. Optional; omit for all jobs." },
 	eventName: {
 		type: "string",
-		enum: ["GradeRecorded", "JobResolved", "JobCreated"],
-		description: "Which event to fetch. Default GradeRecorded.",
+		enum: ["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated"],
+		description:
+			"Which event to fetch. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Default ScoreRecorded.",
 	},
 	fromBlock: {
 		type: "string",
@@ -96,8 +98,10 @@ export const jobEventsInput = {
 const CHUNK = BigInt(process.env.LOGS_CHUNK ?? 500);
 const DEFAULT_LOOKBACK = BigInt(process.env.LOGS_LOOKBACK ?? 5_000);
 
+type MonitorEvent = "ScoreRecorded" | "ValidityRecorded" | "NewLeader" | "JobResolved" | "JobCreated";
+
 export async function jobEvents(args: { jobId?: string; eventName?: string; fromBlock?: string }) {
-	const eventName = (args.eventName ?? "GradeRecorded") as "GradeRecorded" | "JobResolved" | "JobCreated";
+	const eventName = (args.eventName ?? "ScoreRecorded") as MonitorEvent;
 	const eventAbi = ESCROW_ABI.find((x) => x.type === "event" && x.name === eventName);
 	if (!eventAbi) throw new Error(`unknown event ${eventName}`);
 
