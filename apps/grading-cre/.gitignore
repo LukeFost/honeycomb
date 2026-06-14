@@ -12,3 +12,6 @@ tmp.js
 out/
 cache/
 broadcast/
+# Python venvs (e.g. grader/.venv-lp for the Demeter LP scorer)
+.venv*/
+__pycache__/
