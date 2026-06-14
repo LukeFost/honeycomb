@@ -33,6 +33,13 @@ import { queryReputation } from "../honeycomb-mcp/tools/reputation.ts";
 import { gradeSubmission } from "../honeycomb-mcp/tools/grade.ts";
 
 const PORT = Number(process.env.PORT ?? process.env.HONEYCOMB_API_PORT ?? 8787);
+// Bind loopback by default — the write routes broadcast funded txs and spawn the
+// grader, so they must not be reachable from the LAN. Set HOST=0.0.0.0 to expose
+// deliberately (and only behind HONEYCOMB_API_TOKEN).
+const HOST = process.env.HOST ?? process.env.HONEYCOMB_API_HOST ?? "127.0.0.1";
+// Shared secret guarding the mutating routes. When unset, write routes are
+// refused outright rather than served unauthenticated.
+const WRITE_TOKEN = process.env.HONEYCOMB_API_TOKEN;
 
 // The usage guide is the Claude Code skill at .claude/skills/honeycomb/SKILL.md
 // (repo root, four levels up from this file: apps/honeycomb-api/ -> repo). Read
@@ -55,11 +62,40 @@ const json = (data: unknown, status = 200) =>
 const fail = (err: unknown, status = 500) =>
 	json({ error: err instanceof Error ? err.message : String(err) }, status);
 
-// Parse the JSON body of a write request; {} when empty/absent.
+// A handler error carrying an explicit HTTP status (e.g. 400/401), so the
+// top-level catch can surface the right code instead of a blanket 500.
+class HttpError extends Error {
+	constructor(message: string, readonly status: number) {
+		super(message);
+	}
+}
+
+// Parse the JSON body of a write request; {} when empty/absent. Malformed JSON
+// is a client error (400), not a server fault (500).
 async function body(req: Request): Promise<Record<string, unknown>> {
 	const text = await req.text();
 	if (!text.trim()) return {};
-	return JSON.parse(text);
+	try {
+		return JSON.parse(text);
+	} catch {
+		throw new HttpError("invalid JSON body", 400);
+	}
+}
+
+// Reject a mutating request that is missing or fails the shared-secret check.
+// Throws (loud) rather than returning a soft default, per the repo convention.
+function requireWriteAuth(req: Request): void {
+	if (!WRITE_TOKEN) {
+		throw new HttpError(
+			"write routes are disabled: set HONEYCOMB_API_TOKEN to enable them",
+			503,
+		);
+	}
+	const presented = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "")
+		?? req.headers.get("x-honeycomb-token");
+	if (presented !== WRITE_TOKEN) {
+		throw new HttpError("unauthorized", 401);
+	}
 }
 
 // --- routing ----------------------------------------------------------------
@@ -117,15 +153,33 @@ async function route(req: Request): Promise<Response> {
 		);
 	}
 
-	// --- write routes (need secrets) ----------------------------------------
+	// --- write routes (need secrets + auth) ---------------------------------
 	if (m === "POST" && pathname === "/bounties") {
-		return json(await createBounty(await body(req)));
+		requireWriteAuth(req);
+		const b = await body(req);
+		// Over HTTP the caller is untrusted: forbid the absolute-path escape that
+		// the local operator is allowed (createBounty.ts treats absolute bountyDir
+		// as a deliberate opt-out of the traversal guard).
+		if (typeof b.bountyDir === "string" && b.bountyDir.startsWith("/")) {
+			throw new HttpError("bountyDir must be a repo-relative path", 400);
+		}
+		for (const k of ["rewardUSDC", "hoursToDeadline"]) {
+			if (k in b && !Number.isFinite(Number(b[k]))) {
+				throw new HttpError(`${k} must be a finite number`, 400);
+			}
+		}
+		return json(await createBounty(b));
 	}
 
 	if (m === "POST" && pathname === "/grade") {
+		requireWriteAuth(req);
 		const b = await body(req);
 		if (typeof b.submissionPath !== "string") {
-			return fail("submissionPath (string) is required", 400);
+			throw new HttpError("submissionPath (string) is required", 400);
+		}
+		// Untrusted caller: keep the grader pointed at repo-relative submissions.
+		if (b.submissionPath.startsWith("/")) {
+			throw new HttpError("submissionPath must be a repo-relative path", 400);
 		}
 		return json(await gradeSubmission(b as Parameters<typeof gradeSubmission>[0]));
 	}
@@ -136,14 +190,20 @@ async function route(req: Request): Promise<Response> {
 // --- boot -------------------------------------------------------------------
 Bun.serve({
 	port: PORT,
+	hostname: HOST,
 	idleTimeout: 255, // grading + on-chain settle can run long; max bun allows
 	async fetch(req) {
 		try {
 			return await route(req);
 		} catch (err) {
-			return fail(err);
+			return fail(err, err instanceof HttpError ? err.status : 500);
 		}
 	},
 });
 
-console.error(`[honeycomb-api] listening on http://localhost:${PORT}`);
+console.error(`[honeycomb-api] listening on http://${HOST}:${PORT}`);
+console.error(
+	WRITE_TOKEN
+		? "[honeycomb-api] write routes require HONEYCOMB_API_TOKEN"
+		: "[honeycomb-api] write routes DISABLED (set HONEYCOMB_API_TOKEN to enable)",
+);

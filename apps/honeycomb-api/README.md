@@ -53,6 +53,13 @@ bun run --cwd apps/honeycomb-api typecheck
 
 `PORT` (or `HONEYCOMB_API_PORT`) overrides the port; default `8787`.
 
+The server binds **loopback (`127.0.0.1`) by default** — the write routes broadcast
+funded txs and spawn the grader, so they must not be reachable from the LAN. The
+write routes (`POST /bounties`, `POST /grade`) are **disabled unless
+`HONEYCOMB_API_TOKEN` is set**, and then require it on every call via
+`Authorization: Bearer <token>` or the `X-Honeycomb-Token` header. To expose
+beyond loopback (don't, unless you mean it), set `HOST=0.0.0.0` AND a token.
+
 ```sh
 curl localhost:8787/jobs?limit=3
 curl localhost:8787/jobs/2
