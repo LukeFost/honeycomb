@@ -56,7 +56,7 @@ root on disk:
 On enable, the plugin **prompts** for two `userConfig` values:
 
 - **Honeycomb API URL** (required) — the base URL of the hosted `honeycomb-api`.
-- **Write token** (optional) — bearer token for the two write routes.
+- **Write token** (optional) — bearer token for the write routes (the ✓ tools above).
 
 Point `HONEYCOMB_API_URL` at `http://localhost:8787` to drive a locally-run
 `honeycomb-api` (see `apps/honeycomb-api`).
