@@ -76,7 +76,13 @@ jobs:
       - name: deploy to cloud run
         env:
           IMAGE: us-central1-docker.pkg.dev/honeycomb-499305/honeycomb/honeycomb-api:latest
-          GRADER_ENCLAVE_URL: http://10.128.0.14:8000
+          # Internal IP of the warm grading enclave VM (grading-enclave-warm).
+          # NOTE: this is the VM's ephemeral internal IP -- it changes if the VM is
+          # recreated. Re-check with `gcloud compute instances list` after any VM
+          # rebuild and update here. Firewall keys on the `grading-enclave` tag +
+          # the honeycomb-conn range (10.8.0.0/28), not the IP, so only this literal
+          # needs to track the VM.
+          GRADER_ENCLAVE_URL: http://10.128.0.25:8000
           HONEYCOMB_CRE_TARGET: mainnet-settings
         run: |
           gcloud run deploy honeycomb-api \

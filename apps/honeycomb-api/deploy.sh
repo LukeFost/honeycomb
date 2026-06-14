@@ -12,9 +12,10 @@
 # NETWORK PATH (chosen 2026-06-14): Serverless VPC connector + internal IP.
 #   --vpc-connector honeycomb-conn (10.8.0.0/28) routes RFC-1918 egress onto the
 #   VPC; --vpc-egress private-ranges-only keeps PUBLIC egress (GitHub for cre, the
-#   Sepolia RPC) going straight out. The enclave VM grading-enclave-warm has NO
-#   public IP -- only 10.128.0.14 -- and firewall allow-grading-enclave-8000-internal
-#   opens :8000 to 10.8.0.0/28 only. So GRADER_ENCLAVE_URL=http://10.128.0.14:8000.
+#   Sepolia RPC) going straight out. The enclave VM grading-enclave-warm reaches
+#   :8000 via its internal IP, and firewall allow-grading-enclave-8000-internal
+#   opens :8000 to 10.8.0.0/28 only. So GRADER_ENCLAVE_URL=http://<internal-ip>:8000
+#   (currently 10.128.0.25 -- see the GRADER_ENCLAVE_URL default below).
 #
 # SECRETS: mounted via --set-secrets (Secret Manager -> env). NONE are baked into
 #   the image. The runtime SA (bq-script@) holds secretAccessor on all five.
@@ -32,7 +33,8 @@
 #   - run.googleapis.com + cloudbuild + artifactregistry + vpcaccess enabled.
 #   - VPC connector honeycomb-conn READY (us-central1, 10.8.0.0/28).
 #   - 5 secrets created; runtime SA bq-script@ granted secretAccessor on each.
-#   - enclave VM internal-only (10.128.0.14), firewalled :8000 <- 10.8.0.0/28.
+#   - enclave VM grading-enclave-warm (internal IP 10.128.0.25), firewalled
+#     :8000 <- 10.8.0.0/28 by tag grading-enclave.
 # ===========================================================================
 set -euo pipefail
 
@@ -47,10 +49,12 @@ RUNTIME_SA="${RUNTIME_SA:-bq-script@honeycomb-499305.iam.gserviceaccount.com}"
 
 # VPC connector -> reach the internal-only grading enclave.
 VPC_CONNECTOR="${VPC_CONNECTOR:-honeycomb-conn}"
-# Internal IP of grading-enclave-warm. (Internal IPs are stable across stop/start;
-# re-check with `gcloud compute instances describe grading-enclave-warm` if the VM
-# is recreated.) :8000 is the warm daemon, opened to the connector range only.
-GRADER_ENCLAVE_URL="${GRADER_ENCLAVE_URL:-http://10.128.0.14:8000}"
+# Internal IP of grading-enclave-warm. Ephemeral: stable across stop/start but
+# CHANGES if the VM is recreated (that's what stranded the old .14). Re-check with
+# `gcloud compute instances list` and update here after any rebuild. The firewall
+# keys on tag `grading-enclave` + the connector range, not the IP, so only this
+# literal needs to track the VM. :8000 is the warm daemon.
+GRADER_ENCLAVE_URL="${GRADER_ENCLAVE_URL:-http://10.128.0.25:8000}"
 # CRE relay settings file naming the deployed escrow/forwarder (mainnet-settings).
 HONEYCOMB_CRE_TARGET="${HONEYCOMB_CRE_TARGET:-mainnet-settings}"
 
