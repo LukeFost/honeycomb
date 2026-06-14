@@ -50,8 +50,9 @@ signal your token works).
 | GET | `/spec?...` | Resolve a bounty's spec. | none |
 | GET | `/gcs` | Off-chain content index (specs / sealed submissions) from Neon `gcs_objects`. | `DATABASE_URL` |
 | GET | `/reputation?mode=&agentId=&limit=` | ERC-8004 reputation from BigQuery: `counts` / `feedback` / `leaderboard`. | BigQuery auth |
+| POST | `/snapshot?jobs=N&lookback=N` | Reconcile live chain → Neon (jobs upsert + events append). Reads public chain, writes our own DB — no money, no signature, so **not token-gated**. Driven every 15m by Cloud Scheduler (`honeycomb-snapshot`) as a safety net behind the WS subscriber. | `DATABASE_URL` |
 
-### Writes — token required
+### Writes — token required (spends money or signs a tx)
 
 | Method | Path | What it does | Required body | Secrets |
 | --- | --- | --- | --- | --- |
@@ -62,7 +63,6 @@ signal your token works).
 | POST | `/grade` | Run a submission through the **real grader** → score + validity + attestation digests. | `submissionPath` (repo-relative) | demeter venv, `INFERENCE_API_KEY_VAR` |
 | POST | `/submit` | Solver one-call front door: read bounty → grade → record both gates on-chain (CRE) → plain-English verdict. | `jobId`, `submissionPath` (repo-relative) | grade deps + CRE relay/CLI |
 | POST | `/agents/register` | Mint an ERC-8004 agent identity (real on-chain tx; pre-checks signer gas). | optional `tokenURI` | `SEP_PRIVATE_KEY` |
-| POST | `/snapshot?jobs=N&lookback=N` | Snapshot live chain → Neon (jobs upsert + events append). Normally driven by Cloud Scheduler. | none | `DATABASE_URL` |
 
 Errors surface faithfully as JSON `{error}` with a 4xx/5xx status — no silent
 fallback. `submissionPath` / `bountyDir` must be **repo-relative**: an absolute

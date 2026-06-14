@@ -39,6 +39,7 @@ import { gradeSubmission } from "../honeycomb-mcp/tools/grade.ts";
 import { submitWork } from "../honeycomb-mcp/tools/submitWork.ts";
 import { registerAgent } from "../honeycomb-mcp/tools/registerAgent.ts";
 import { resolveSpec } from "../honeycomb-mcp/tools/resolveSpec.ts";
+import { readLogs } from "../honeycomb-mcp/tools/logs.ts";
 import { runSnapshot } from "../honeycomb-mcp/db/snapshot.ts";
 import { record as recordToolCall } from "../honeycomb-mcp/db/telemetry.ts";
 import { startSubscriberIfConfigured } from "../honeycomb-mcp/db/subscriber.ts";
@@ -198,6 +199,29 @@ async function route(req: Request): Promise<Response> {
 		);
 	}
 
+	// --- guarded read: Cloud Logging --------------------------------------------
+	// GET /logs reads the deployed service's own Cloud Logging entries. It's a
+	// READ, but log text can carry internal detail (RPC hosts, error internals),
+	// so it's token-gated like a write route rather than left public. The web
+	// /ops admin panel reaches it only in dev mode (where the token exists), so
+	// the public deployed page never surfaces logs.
+	//   ?service=honeycomb-api|honeycomb-web  ?limit=100  ?sinceMinutes=60
+	//   ?minSeverity=WARNING|ERROR  ?contains=<substring>
+	if (m === "GET" && pathname === "/logs") {
+		requireWriteAuth(req);
+		const sev = url.searchParams.get("minSeverity");
+		const contains = url.searchParams.get("contains");
+		return json(
+			await readLogs({
+				service: url.searchParams.get("service") ?? undefined,
+				limit: numParam(url, "limit"),
+				sinceMinutes: numParam(url, "sinceMinutes"),
+				minSeverity: sev ?? undefined,
+				contains: contains ?? undefined,
+			}),
+		);
+	}
+
 	// --- write routes (need secrets + auth) ---------------------------------
 	if (m === "POST" && pathname === "/bounties") {
 		requireWriteAuth(req);
@@ -309,11 +333,10 @@ async function route(req: Request): Promise<Response> {
 	// Snapshot the live chain into Neon (jobs upsert + events append). Triggered
 	// on a schedule by Cloud Scheduler against this always-on instance, so the
 	// chain data records continuously without any laptop or Claude session. Reads
-	// only public chain state, but writes to the DB, so it's behind the write
-	// token to keep it from being spammed. Needs DATABASE_URL (snapshot throws if
-	// unset). ?jobs=N&lookback=N override the defaults.
+	// only public chain state and writes to our own DB — no money, no signature —
+	// so it's NOT token-gated; the Scheduler cron calls it without a header. Needs
+	// DATABASE_URL (snapshot throws if unset). ?jobs=N&lookback=N override the defaults.
 	if (m === "POST" && pathname === "/snapshot") {
-		requireWriteAuth(req);
 		const jobsLimit = numParam(url, "jobs");
 		const lookback = url.searchParams.get("lookback") ?? undefined;
 		return json(await runSnapshot({ jobsLimit, lookback }));
