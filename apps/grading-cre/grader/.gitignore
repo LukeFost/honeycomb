@@ -1,0 +1,13 @@
+# Held-out private market data - must not be committed
+data/private/
+data/_raw_tmp/
+# Discarded window-selection artifact (the Jun-05 dump, excluded from scoring)
+data/_unused/
+
+# demeter local venv
+.demeter-venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
