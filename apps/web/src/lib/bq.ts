@@ -80,47 +80,57 @@ export const VALIDATION_REGISTRY = {
 
 export const VALIDATION_CONFIGURED = _validationAddress.length > 0;
 
-// The Honeycomb bounty-market escrow — emits the full bounty lifecycle (BountyCreated /
-// SubmissionMade / ValidationRecorded / BountySettled). The SAME warehouse-native decode→MERGE
-// machinery that fills the Layer-1 tables fills the Layer-2 market tables from these events, so
-// there is NO off-chain indexer in the production path. There is no production escrow deployed
-// yet, so the address defaults to "" (like VALIDATION_REGISTRY): the refresh loop SKIPS Layer 2
-// while unconfigured, leaving production cost identical to Layer-1-only. Point BQ_ESCROW_ADDRESS
-// at the deployed escrow (the demo points it at the local mock) and the loop decodes its events.
+// The Honeycomb bounty-market escrow (BountyEscrow.sol) — emits the live contest lifecycle:
+// JobCreated (bounty opened) / Submitted (agent entry) / ScoreRecorded + ValidityRecorded (the
+// grader enclave's per-agent score and the AI attestor's validity verdict) / JobResolved (winner
+// paid). The SAME warehouse-native decode→MERGE machinery that fills the Layer-1 tables fills the
+// Layer-2 market tables from these events, so there is NO off-chain indexer in the production
+// path. There is no production escrow on EF mainnet, so the address defaults to "" (like
+// VALIDATION_REGISTRY): the refresh loop SKIPS Layer 2 while unconfigured, leaving production cost
+// identical to Layer-1-only. Point BQ_ESCROW_ADDRESS at the deployed escrow (the demo points it at
+// the Sepolia escrow / a local fixture) and the loop decodes its events.
 //
-// The four topic0s are fixed by the event ABI (each verified with `cast keccak`); the mock in
-// contracts/ mirrors that exact ABI, so the demo decodes with the identical SQL mainnet will.
-// The events are deliberately SQL-friendly: every field is fixed-width except a single trailing
-// `string` (a bounty's `title`, a submission's `cid`) — `category` is a bytes32 enum — so the
-// decode never has to slice two dynamic blobs (see the multi-string trap in the handoff doc §5).
+// The five topic0s are fixed by the event ABI (each verified with `cast keccak` against
+// apps/grading-cre/contracts/BountyEscrow.sol). The market tables keep their original
+// (bounty/submission/validation/settlement) shape so reputation.ts is unchanged; the per-agent
+// grading model maps on: a `validation` row is the JOIN of ScoreRecorded (the score) with
+// ValidityRecorded (the valid flag) on (jobId, agentId), and a `settlement` is one JobResolved.
+// Each event is SQL-friendly: fixed-width except a single trailing `string` (specCid / encCid),
+// so a decode never slices two dynamic blobs (see the multi-string trap in the handoff doc §5).
 const _escrowAddress = (envVar("BQ_ESCROW_ADDRESS") || "").toLowerCase();
 export const ESCROW = {
   label: "Honeycomb Escrow",
   address: _escrowAddress,
   status: _escrowAddress ? "configured" : "pending deployment",
   events: {
-    // BountyCreated(uint256 bountyId, address requester, bytes32 category, uint256 rewardWei,
-    //   uint64 deadline, string title)
-    bountyCreated: {
-      name: "BountyCreated",
-      topic0: "0x7181b860d66cc03cb89eda8049475d4486cf99c9599224e9a07f700ccde35aca",
+    // JobCreated(uint256 jobId, address client, address token, uint256 budget, uint64 expiredAt,
+    //   bytes32 testsHash, string specCid) — bounty opened + funded. jobId/client are indexed.
+    jobCreated: {
+      name: "JobCreated",
+      topic0: "0x9855ca043ca23bb0633159f2812ae1fa3bd48bb40b276c4a4235b1f10b9b5dc9",
     },
-    // SubmissionMade(uint256 bountyId, uint256 agentId, string submissionCid)
-    submissionMade: {
-      name: "SubmissionMade",
-      topic0: "0xfbc293ba94b87743a04695df6178945fc536676da953723d06353bbd5002b22d",
+    // Submitted(uint256 jobId, uint256 agentId, string encCid) — agent's sealed entry.
+    submitted: {
+      name: "Submitted",
+      topic0: "0xae08e1249fd19814a089a2a9752c327d3810a8a59ae7f4186f9d31f3c061cf61",
     },
-    // ValidationRecorded(uint256 bountyId, uint256 agentId, address validator, uint8 response,
-    //   bool valid, bytes32 responseHash) — the bounty-linked enclave verdict. Carries bounty_id
-    //   + the valid flag the leaderboard needs (the bare EF ValidationResponse carries neither).
-    validationRecorded: {
-      name: "ValidationRecorded",
-      topic0: "0x4c9b4b2b0502a4f8deaf051eea1568760ec7c9d24fc3a69ff8a0905f7a60fd43",
+    // ScoreRecorded(uint256 jobId, uint256 agentId, uint16 score, bytes32 scoreDigest) — the
+    //   grader enclave's ecrecover'd execution score. Carries the score the leaderboard reads.
+    scoreRecorded: {
+      name: "ScoreRecorded",
+      topic0: "0x3f1262f8c7a1883060be13e8764209845606db24de9c26de2a8c8297e57b6506",
     },
-    // BountySettled(uint256 bountyId, uint256 winnerAgentId, uint32 winnerScore, bytes32 attestationHash)
-    bountySettled: {
-      name: "BountySettled",
-      topic0: "0xb6f53784b074065f4f949859a7ac4cd18a1ec35eeb4c18d474da7b76e5782d40",
+    // ValidityRecorded(uint256 jobId, uint256 agentId, bool valid, bytes32 validityAtt) — the AI
+    //   attestor's verdict. Joined to ScoreRecorded on (jobId, agentId) to form a validation row.
+    validityRecorded: {
+      name: "ValidityRecorded",
+      topic0: "0x9e90cd5e34c73b34fddfb534be16bf793d5cdf208814e5304378f3287de8545d",
+    },
+    // JobResolved(uint256 jobId, uint256 winnerAgentId, address provider, uint16 score,
+    //   uint256 paidOut) — winner paid. jobId/winnerAgentId indexed.
+    jobResolved: {
+      name: "JobResolved",
+      topic0: "0xb62c70cdc505593d69455190a97db971cd71bb996364450891b123f59c434693",
     },
   },
 } as const;
@@ -539,26 +549,28 @@ CREATE TABLE IF NOT EXISTS \`${ds}.settlements\` (
 // --- Layer-2 decoders: raw escrow logs → the market-table shapes -------------------------
 // Same offset math as Layer 1 (see decodeRegisteredSql + the handoff doc §7). `data` is the
 // public-table STRING column ('0x'+hex, lowercase); SUBSTR is 1-indexed, so data word k
-// (0-indexed) is SUBSTR(data, 3 + k*64, 64). Indexed params come from `topics`. Every event is
-// fixed-width except one trailing `string`, so each decoder slices at most one dynamic blob.
+// (0-indexed) is SUBSTR(data, 3 + k*64, 64). Indexed params come from `topics`. JobCreated and
+// Submitted each carry one trailing `string` (specCid / encCid); the verdict decoder joins the
+// two fixed-width events ScoreRecorded + ValidityRecorded. The decoders preserve the original
+// market-table column shapes so reputation.ts is unchanged across the contract refactor.
 
-/** Decode `BountyCreated` → honeycomb.bounties. `category` is a bytes32 enum (trailing NUL
- *  padding trimmed); `title` is the lone trailing string — the head is 4 words (category,
- *  rewardWei, deadline, title-offset=0x80), so the title length sits at byte 128 (char 259) and
- *  its bytes at char 323. `reward_eth` = rewardWei/1e18, summed over eight 32-bit big-endian
- *  limbs in FLOAT64 because a >9.2-ether reward in wei overflows INT64 (SAFE_CAST → NULL). */
+/** Decode `JobCreated` → honeycomb.bounties. Indexed: jobId (topic1), client (topic2). The data
+ *  head is 5 words — token(w0), budget(w1, uint256 token base units), expiredAt(w2, uint64),
+ *  testsHash(w3), specCid-offset(w4 = 0xa0). The new contract has no on-chain category/title, so
+ *  `category` is the constant 'grading' and `title` is the specCid (the lone trailing string: its
+ *  length sits at byte 160 = char 323, its bytes at char 387). `reward_eth` here is the reward in
+ *  whole token units = budget / 1e6 (USDC is 6-decimal), NOT wei/1e18; budget fits INT64 for any
+ *  realistic USDC reward (1e6 base units ~ 9.2e12 USDC ceiling), so a single SAFE_CAST suffices. */
 export function decodeBountiesSql(where = ""): string {
   return `SELECT
       SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64)        AS bounty_id,
       CONCAT('0x', SUBSTR(topics[SAFE_OFFSET(2)], 27))  AS requester,
-      RTRIM(SAFE_CONVERT_BYTES_TO_STRING(FROM_HEX(SUBSTR(data, 3, 64))),
-            CODE_POINTS_TO_STRING([0]))                 AS category,
+      'grading'                                         AS category,
       SAFE_CONVERT_BYTES_TO_STRING(FROM_HEX(SUBSTR(
-        data, 323,
-        2 * SAFE_CAST(CONCAT('0x', SUBSTR(data, 259, 64)) AS INT64)
+        data, 387,
+        2 * SAFE_CAST(CONCAT('0x', SUBSTR(data, 323, 64)) AS INT64)
       )))                                               AS title,
-      (SELECT SUM(SAFE_CAST(CONCAT('0x', SUBSTR(data, 67 + i * 8, 8)) AS INT64) * POW(2, 32 * (7 - i)))
-         FROM UNNEST(GENERATE_ARRAY(0, 7)) AS i) / 1e18 AS reward_eth,
+      SAFE_CAST(CONCAT('0x', SUBSTR(data, 67, 64)) AS INT64) / 1e6 AS reward_eth,
       block_timestamp                                   AS created_at,
       TIMESTAMP_SECONDS(SAFE_CAST(CONCAT('0x', SUBSTR(data, 131, 64)) AS INT64)) AS deadline,
       block_number,
@@ -566,12 +578,13 @@ export function decodeBountiesSql(where = ""): string {
       log_index
     FROM \`${LOGS_TABLE}\`
     WHERE address = '${ESCROW.address}'
-      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.bountyCreated.topic0}'
+      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.jobCreated.topic0}'
       ${where}`;
 }
 
-/** Decode `SubmissionMade` → honeycomb.submissions. submissionCid is the only non-indexed
- *  param (a trailing string at offset 0x20 — same layout as decodeRegisteredSql's agent_uri). */
+/** Decode `Submitted` → honeycomb.submissions. Indexed: jobId (topic1), agentId (topic2). encCid
+ *  is the only non-indexed param (a trailing string at offset 0x20 — same layout as
+ *  decodeRegisteredSql's agent_uri: length word at char 67, bytes at char 131). */
 export function decodeSubmissionsSql(where = ""): string {
   return `SELECT
       SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64) AS bounty_id,
@@ -586,52 +599,85 @@ export function decodeSubmissionsSql(where = ""): string {
       log_index
     FROM \`${LOGS_TABLE}\`
     WHERE address = '${ESCROW.address}'
-      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.submissionMade.topic0}'
+      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.submitted.topic0}'
       ${where}`;
 }
 
-/** Decode `ValidationRecorded` → honeycomb.validations (the bounty-linked enclave verdict).
- *  All fixed-width: validator (address, right-aligned in word0), response (uint8, word1),
- *  valid (bool, word2), responseHash (bytes32, word3). */
+/** Decode the validation verdict → honeycomb.validations. The live contract splits the old single
+ *  ValidationRecorded into two per-agent events: ScoreRecorded (the grader enclave's execution
+ *  score + scoreDigest) and ValidityRecorded (the AI attestor's valid flag). A validation row is
+ *  their LEFT JOIN on (jobId, agentId): the score is the primary signal (reputation.ts reads
+ *  `response`), so the row is keyed on the ScoreRecorded log's (tx_hash, log_index) for the MERGE
+ *  dedup, and `valid` is pulled from the matching ValidityRecorded (defaulting TRUE when validity
+ *  has not landed yet — an unjudged score isn't a failed attestation).
+ *    ScoreRecorded data: score(uint16, w0 → char 3), scoreDigest(bytes32, w1 → char 67).
+ *    ValidityRecorded data: valid(bool, w0 → char 3), validityAtt(bytes32, w1 → char 67).
+ *  There is no per-event `validator` address (the attesterKey lives on the Job), so it is '' —
+ *  the dashboard's validator label falls back gracefully. `where` is applied to the score side
+ *  (the row's identity) only; the validity side is unfiltered so a late validity still joins. */
 export function decodeValidationsSql(where = ""): string {
   return `SELECT
-      SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64)              AS bounty_id,
-      SAFE_CAST(topics[SAFE_OFFSET(2)] AS INT64)              AS agent_id,
-      CONCAT('0x', SUBSTR(data, 27, 40))                      AS validator,
-      SAFE_CAST(CONCAT('0x', SUBSTR(data,  67, 64)) AS INT64) AS response,
-      SAFE_CAST(CONCAT('0x', SUBSTR(data, 131, 64)) AS INT64) != 0 AS valid,
-      CONCAT('0x', SUBSTR(data, 195, 64))                     AS response_hash,
-      block_timestamp                                         AS validated_at,
-      block_number,
-      transaction_hash                                        AS tx_hash,
-      log_index
-    FROM \`${LOGS_TABLE}\`
-    WHERE address = '${ESCROW.address}'
-      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.validationRecorded.topic0}'
-      ${where}`;
+      s.bounty_id,
+      s.agent_id,
+      ''                                AS validator,
+      s.response,
+      COALESCE(v.valid, TRUE)           AS valid,
+      s.response_hash,
+      s.validated_at,
+      s.block_number,
+      s.tx_hash,
+      s.log_index
+    FROM (
+      SELECT
+        SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64)              AS bounty_id,
+        SAFE_CAST(topics[SAFE_OFFSET(2)] AS INT64)              AS agent_id,
+        SAFE_CAST(CONCAT('0x', SUBSTR(data, 3, 64)) AS INT64)   AS response,
+        CONCAT('0x', SUBSTR(data, 67, 64))                      AS response_hash,
+        block_timestamp                                         AS validated_at,
+        block_number,
+        transaction_hash                                        AS tx_hash,
+        log_index
+      FROM \`${LOGS_TABLE}\`
+      WHERE address = '${ESCROW.address}'
+        AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.scoreRecorded.topic0}'
+        ${where}
+    ) s
+    LEFT JOIN (
+      SELECT
+        SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64)              AS bounty_id,
+        SAFE_CAST(topics[SAFE_OFFSET(2)] AS INT64)              AS agent_id,
+        SAFE_CAST(CONCAT('0x', SUBSTR(data, 3, 64)) AS INT64) != 0 AS valid
+      FROM \`${LOGS_TABLE}\`
+      WHERE address = '${ESCROW.address}'
+        AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.validityRecorded.topic0}'
+    ) v
+    USING (bounty_id, agent_id)`;
 }
 
-/** Decode `BountySettled` → honeycomb.settlements. winnerScore (uint32, word0), attestationHash
- *  (bytes32, word1); both fixed-width. */
+/** Decode `JobResolved` → honeycomb.settlements. Indexed: jobId (topic1), winnerAgentId (topic2).
+ *  Data is all fixed-width: provider(address, right-aligned in w0 → char 27..67), score(uint16,
+ *  w1 → char 67), paidOut(uint256, w2 → char 131). The event carries no attestation digest, so
+ *  `attestation_hash` holds the winner's provider address (the on-chain settlement provenance the
+ *  closed-bounties panel shows); `winner_score` is the resolved leader's execution score. */
 export function decodeSettlementsSql(where = ""): string {
   return `SELECT
-      SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64)            AS bounty_id,
-      SAFE_CAST(topics[SAFE_OFFSET(2)] AS INT64)            AS winner_agent_id,
-      SAFE_CAST(CONCAT('0x', SUBSTR(data, 3, 64)) AS INT64) AS winner_score,
-      CONCAT('0x', SUBSTR(data, 67, 64))                    AS attestation_hash,
-      block_timestamp                                       AS settled_at,
+      SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64)             AS bounty_id,
+      SAFE_CAST(topics[SAFE_OFFSET(2)] AS INT64)             AS winner_agent_id,
+      SAFE_CAST(CONCAT('0x', SUBSTR(data, 67, 64)) AS INT64) AS winner_score,
+      CONCAT('0x', SUBSTR(data, 27, 40))                     AS attestation_hash,
+      block_timestamp                                        AS settled_at,
       block_number,
-      transaction_hash                                      AS tx_hash,
+      transaction_hash                                       AS tx_hash,
       log_index
     FROM \`${LOGS_TABLE}\`
     WHERE address = '${ESCROW.address}'
-      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.bountySettled.topic0}'
+      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.jobResolved.topic0}'
       ${where}`;
 }
 
 // --- Layer-2 MERGEs: idempotent on (tx_hash, log_index), mirroring mergeRegistrationsSql ----
 
-/** MERGE a decoded `BountyCreated` source SELECT into the bounties table. */
+/** MERGE a decoded `JobCreated` source SELECT into the bounties table. */
 export function mergeBountiesSql(source: string, ds = HONEYCOMB_DATASET): string {
   return `MERGE \`${ds}.bounties\` T
 USING (
@@ -643,7 +689,7 @@ WHEN NOT MATCHED THEN
   VALUES (S.bounty_id, S.requester, S.category, S.title, S.reward_eth, S.created_at, S.deadline, S.block_number, S.tx_hash, S.log_index)`;
 }
 
-/** MERGE a decoded `SubmissionMade` source SELECT into the submissions table. */
+/** MERGE a decoded `Submitted` source SELECT into the submissions table. */
 export function mergeSubmissionsSql(source: string, ds = HONEYCOMB_DATASET): string {
   return `MERGE \`${ds}.submissions\` T
 USING (
@@ -655,7 +701,7 @@ WHEN NOT MATCHED THEN
   VALUES (S.bounty_id, S.agent_id, S.submission_cid, S.submitted_at, S.block_number, S.tx_hash, S.log_index)`;
 }
 
-/** MERGE a decoded `ValidationRecorded` source SELECT into the validations table. */
+/** MERGE a decoded `ScoreRecorded`⋈`ValidityRecorded` source SELECT into the validations table. */
 export function mergeValidationsSql(source: string, ds = HONEYCOMB_DATASET): string {
   return `MERGE \`${ds}.validations\` T
 USING (
@@ -667,7 +713,7 @@ WHEN NOT MATCHED THEN
   VALUES (S.bounty_id, S.agent_id, S.validator, S.response, S.valid, S.response_hash, S.validated_at, S.block_number, S.tx_hash, S.log_index)`;
 }
 
-/** MERGE a decoded `BountySettled` source SELECT into the settlements table. */
+/** MERGE a decoded `JobResolved` source SELECT into the settlements table. */
 export function mergeSettlementsSql(source: string, ds = HONEYCOMB_DATASET): string {
   return `MERGE \`${ds}.settlements\` T
 USING (

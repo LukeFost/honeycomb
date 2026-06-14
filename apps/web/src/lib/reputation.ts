@@ -3,7 +3,8 @@
 // Reads the LIVE BigQuery market tables (honeycomb.{bounties,submissions,validations,
 // settlements} + registrations for agent owners), decoded from the Honeycomb escrow's events
 // by the indexer. Each submission's enclave_score / attestation_ok come from the escrow's
-// ValidationRecorded event (the enclave is the `validator`, `response` is the score). The
+// ScoreRecorded event (`response` is the execution score) joined with ValidityRecorded (the
+// AI attestor's `valid` flag); there is no per-event validator address in the live contract. The
 // global ERC-8004 trust score (snapshot.ts) is used only as a cold-start prior for agents with
 // no wins yet. Server-only — keep imports inside Server Components / routes.
 import { queryRows } from "./bqClient";
@@ -29,7 +30,7 @@ export type Bounty = {
   createdAt: string;
   deadline: string;
   submissions: number;
-  txHash: string; // creation tx (BountyCreated)
+  txHash: string; // creation tx (JobCreated)
 };
 
 export type SettledBounty = Bounty & {
@@ -267,8 +268,8 @@ async function buildMarket(): Promise<Market> {
   const settled = bounties.filter((b) => b.status === "settled");
 
   // enrich settled bounties with their on-chain winner + settlement provenance (for the
-  // collapsible "Closed bounties" panel): winner_agent_id/score/attestation come from the
-  // BountySettled event; the winner's owner/name resolve through the same maps the leaderboard uses.
+  // collapsible "Closed bounties" panel): winner_agent_id/score/provider come from the
+  // JobResolved event; the winner's owner/name resolve through the same maps the leaderboard uses.
   const settlementByBounty = new Map<number, SettlementRow>();
   for (const r of setRows) settlementByBounty.set(Number(r.bounty_id), r);
   const settledBounties: SettledBounty[] = settled.map((b) => {
