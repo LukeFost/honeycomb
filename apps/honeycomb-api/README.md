@@ -1,20 +1,25 @@
 # honeycomb-api
 
-An HTTP API over the full Honeycomb bounty lifecycle. It is the **same six
-functions** the [honeycomb-mcp](../honeycomb-mcp/) server drives — open + fund a
-bounty, watch it grade and settle, read ERC-8004 reputation, run a submission
-through the real grader — exposed as HTTP routes instead of MCP/stdio.
+The **one backend** behind every Honeycomb front door. It exposes the full
+bounty lifecycle — open + fund a bounty, watch it grade and settle, read
+ERC-8004 reputation, run a submission through the real grader — as HTTP routes.
 
-One source of bounty logic, two front doors:
+There is a single front door for *agents*: the installable [`plugins/honeycomb`](../../plugins/honeycomb/)
+Claude Code plugin, a thin stdio MCP shim that **forwards every tool call to
+these routes**. The plugin can't ship the grader's demeter venv, the BigQuery
+creds, or the Sepolia keys, so the heavy, repo-bound work lives here, server-side.
+The team runs this service locally and points the plugin at `http://localhost:8787`;
+for everyone else you host it.
 
-- **MCP / stdio** (`honeycomb-mcp`) for a local agent in this repo.
-- **HTTP** (this) for a *remote* or *thin* client — the installable Claude Code
-  plugin can't ship the grader's demeter venv, the BigQuery creds, or the
-  Sepolia keys, so it calls these routes instead. The heavy, repo-bound work
-  stays server-side; the plugin stays lightweight.
+*Humans* don't go through this API at all — they use the **dashboard**
+([`apps/web`](../web/)), a separate app you host at its own URL that reads the same
+on-chain + BigQuery data **directly** (its own BigQuery client, not these routes).
+One shared dashboard for everyone — devs and users alike. So Honeycomb has two
+deployables sitting on one data substrate: this API (what the per-user plugin calls)
+and the dashboard (what humans look at).
 
-`server.ts` imports the tool functions directly from `../honeycomb-mcp/tools/*`,
-so the API and the MCP never diverge.
+`server.ts` imports the tool functions directly from `../honeycomb-mcp/tools/*`
+(the shared bounty engine), so the bounty logic lives in exactly one place.
 
 TypeScript + [bun](https://bun.sh) (`Bun.serve`, zero extra deps), `viem` for
 on-chain reads/writes against **BountyEscrow on Sepolia**.
@@ -24,10 +29,10 @@ on-chain reads/writes against **BountyEscrow on Sepolia**.
 | Method | Path | What it does | Secrets |
 | --- | --- | --- | --- |
 | GET | `/` | Health: `{name, status, port}`. | none |
-| GET | `/skill` | The usage guide (markdown) — same text as the MCP `honeycomb://skill` resource and the `/honeycomb` skill. | none |
+| GET | `/skill` | The usage guide (markdown) — the canonical `/honeycomb` skill, read live so the docs never drift. The plugin's `get_skill` tool returns this. | none |
 | GET | `/jobs?limit=N` | Recent bounties, newest first. | none |
 | GET | `/jobs/:id` | One job's full state: status, reward, deadline, best *valid* grade, `settled`, winner wallet. | none |
-| GET | `/events?eventName=&jobId=&fromBlock=` | Decoded `ScoreRecorded` / `JobResolved` / `JobCreated` logs (page-safe under the Goldsky 1k-block cap). | none |
+| GET | `/events?eventName=&jobId=&fromBlock=` | Decoded `ScoreRecorded` / `ValidityRecorded` / `NewLeader` / `JobResolved` / `JobCreated` logs (page-safe under the Goldsky 1k-block cap). | none |
 | GET | `/reputation?mode=&agentId=&limit=` | ERC-8004 reputation from BigQuery: `counts` / `feedback` / `leaderboard`. | BigQuery auth |
 | POST | `/bounties` | Open + fund a bounty. **BROADCASTS a real Sepolia tx.** Body = the `create_bounty` args (`rewardUSDC`, `hoursToDeadline`, `bountyDir`, ...). | `SEP_PRIVATE_KEY` |
 | POST | `/grade` | Run a submission through the **real grader** → score + validity + attestation digests. Body = `{submissionPath, bounty?, jobId?, agentId?}`. | demeter venv, `INFERENCE_API_KEY_VAR` |
@@ -36,7 +41,7 @@ Read routes need no secrets (reputation needs BigQuery auth). Errors surface
 faithfully as JSON `{error}` with a 4xx/5xx status — no silent fallback.
 
 `jobId` is a string everywhere (ERC-8183 ids can exceed 2^53). The query/body
-shapes mirror the MCP tool params exactly; see [`GET /skill`](#run) for the
+shapes mirror the plugin's tool params exactly; see [`GET /skill`](#run) for the
 canonical parameter reference.
 
 ## Run
@@ -69,7 +74,8 @@ curl localhost:8787/skill
 
 ## Env
 
-Identical to [honeycomb-mcp](../honeycomb-mcp/README.md#required-env):
+The engine's secrets ([honeycomb-mcp](../honeycomb-mcp/README.md#secrets)), needed
+only by the routes that use them:
 
 | Var | Needed by | Notes |
 | --- | --- | --- |
@@ -85,8 +91,8 @@ keychain with those service names or set the env vars another way and run
 
 ## Addresses (Sepolia)
 
-Same defaults as the MCP, all overridable via env:
+Defaults from the engine's `chain.ts`, all overridable via env:
 
-- BountyEscrow `0x1210d43ED5e8e226cE35bF30a44A554997e1395a`
+- BountyEscrow `0xce27EEDE3b033582e1Adec94F8679d3feEF142c2` (ERC-8183)
 - USDC `0x3211C5E4B4d57B673d67a976699121667f419e17`
 - ERC-8004 Identity Registry `0x8004A818BFB912233c491871b3d84c89A494BD9e`

@@ -14,7 +14,7 @@ The plugin's only runtime dependencies are `@modelcontextprotocol/sdk` and `zod`
 | `create_bounty` | Open + fund a bounty on Sepolia (hashes the private bundle, approves USDC, calls createBounty). Write route. | `POST /bounties` |
 | `get_job` | Read one job's full state: status, reward, deadline, best valid grade, settled, winner wallet. | `GET /jobs/{jobId}` |
 | `list_jobs` | Recent bounties, newest first. | `GET /jobs?limit=` |
-| `job_events` | Decoded `ScoreRecorded` / `JobResolved` / `JobCreated` logs. | `GET /events?eventName=&jobId=&fromBlock=` |
+| `job_events` | Decoded `ScoreRecorded` / `ValidityRecorded` / `NewLeader` / `JobResolved` / `JobCreated` logs. | `GET /events?eventName=&jobId=&fromBlock=` |
 | `query_reputation` | Live ERC-8004 reputation: `counts` / `feedback` / `leaderboard`. | `GET /reputation?mode=&agentId=&limit=` |
 | `grade_submission` | Run a submission through the real TEE grader: score + validity + attestation digests. Write route. | `POST /grade` |
 | `get_skill` | Return the Honeycomb usage guide as markdown. | `GET /skill` |
@@ -50,9 +50,30 @@ are pretty-printed; `/skill` is raw markdown). On a non-2xx response the handler
 with the HTTP status and the body `{error}` text, so the failure surfaces as an MCP error
 rather than a fake success. `${CLAUDE_PLUGIN_ROOT}` resolves the shim path at runtime.
 
-## Relationship to `apps/honeycomb-mcp`
+## Architecture: one front door for agents, one dashboard for humans
 
-This plugin and the in-repo `apps/honeycomb-mcp` expose the **same 7 tools** with the same
-names and input schemas. The difference is where the logic runs: `honeycomb-mcp` executes
-it in-repo (viem, the grader venv, BigQuery), while this plugin forwards each call to the
-hosted `honeycomb-api`. One contract, two front doors.
+This plugin is the **single** way an *agent* drives Honeycomb — open/monitor/grade bounties
+as tool calls. It forwards every call to the hosted `honeycomb-api`, which owns the bounty
+logic and the heavy deps. Humans look at the **dashboard** (`apps/web`) instead, a separate
+app you host at its own URL. Both sit on the same on-chain + BigQuery data:
+
+```
+              Sepolia (BountyEscrow) + BigQuery (ERC-8004 reputation)
+               ▲                                          ▲
+       drives  │                                          │  reads directly
+        + reads │                                          │  (own BigQuery client)
+                │                                          │
+  plugins/honeycomb ──HTTP──► apps/honeycomb-api      apps/web  (the shared dashboard)
+  (per-user, install this)    (the backend)            (devs + users, one URL)
+                                    │ imports
+                                    ▼
+                            apps/honeycomb-mcp/tools/*  (the shared bounty engine)
+```
+
+You **install the plugin** into Claude Code (per user); you **visit the dashboard** at a URL
+(one shared instance). They are not bundled together.
+
+There used to be a second front door — a standalone stdio MCP server in `apps/honeycomb-mcp`.
+It was removed; that package is now just the engine the API imports. So tool *logic* lives in
+one place. The tool *schemas* are declared here (the shim) and in the API — keep the two in
+sync when a tool's params change. (The dashboard reads BigQuery directly, not through the API.)

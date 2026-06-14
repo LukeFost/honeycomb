@@ -2,10 +2,10 @@
 // ============================================================================
 // Honeycomb plugin shim — the THIN client.
 //
-// Ships the SAME seven tools as apps/honeycomb-mcp/server.ts, but instead of
-// importing viem / the demeter venv / BigQuery / @honeycomb/chain, each tool
-// FORWARDS its call over HTTP to a hosted honeycomb-api (apps/honeycomb-api).
-// That service keeps the heavy deps and the secrets; this plugin ships only
+// The single Honeycomb front door. Instead of importing viem / the demeter venv
+// / BigQuery / @honeycomb/chain, each tool FORWARDS its call over HTTP to the
+// hosted honeycomb-api (apps/honeycomb-api), which owns the bounty logic
+// (apps/honeycomb-mcp/tools/*) and the secrets. This plugin ships only
 // @modelcontextprotocol/sdk and zod, so it installs anywhere Claude Code runs.
 //
 //   create_bounty     POST /bounties     [write token]
@@ -112,7 +112,7 @@ server.registerTool(
 	{
 		title: "Create a Honeycomb bounty",
 		description:
-			"Open + fund a bounty (ERC-8183 Job) on BountyEscrow (Sepolia). Hashes the private bundle (rubric + scoring + private series) into testsHash, approves the USDC reward, calls createBounty, and returns the on-chain jobId. BROADCASTS a real transaction; requires SEP_PRIVATE_KEY.",
+			"Open + fund a bounty (ERC-8183 Job) on BountyEscrow (Sepolia). Hashes every file under the bounty's private/ dir (sorted, raw bytes) into testsHash, approves the USDC reward, calls createBounty, and returns the on-chain jobId. BROADCASTS a real transaction; requires SEP_PRIVATE_KEY.",
 		inputSchema: {
 			rewardUSDC: z.number().positive().optional().describe("Reward in human USDC (6dp token). Default 50."),
 			hoursToDeadline: z.number().positive().optional().describe("Hours from now to the contest deadline. Default 1."),
@@ -126,7 +126,21 @@ server.registerTool(
 			privateFiles: z
 				.array(z.string())
 				.optional()
-				.describe("Override the private bundle file list (relative to bountyDir). Default: rubric.md, scoring.py, prices_private.json."),
+				.describe(
+					"ADVANCED override of the private bundle file list (relative to bountyDir). Leave unset: the default sorted walk of private/ matches create-bounty.ts's testsHash exactly. An explicit list will NOT reproduce the maker's digest.",
+				),
+			attesterKey: z
+				.string()
+				.optional()
+				.describe(
+					"Execution enclave's score-signer address, sent on-chain by the 6-arg createBounty (the escrow ecrecovers each grade against it). Default: the live KMS score-signer.",
+				),
+			makerPubKey: z
+				.string()
+				.optional()
+				.describe(
+					"Maker's X25519 delivery pubkey as bytes32; the grader seals the winning submission to it. Sent on-chain (createBounty reverts on zero). Default: MAKER_PUBKEY from env/chain.ts.",
+				),
 		},
 	},
 	async (args) => ok(await post("/bounties", args)),
@@ -161,11 +175,14 @@ server.registerTool(
 	{
 		title: "Read bounty events",
 		description:
-			"Fetch decoded ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated logs from BountyEscrow over a block range. Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
+			"Fetch decoded ScoreRecorded / ValidityRecorded / NewLeader / JobResolved / JobCreated logs from BountyEscrow over a block range. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Optionally filter to one jobId. Use this to monitor a bounty's grading + settlement in a loop.",
 		inputSchema: {
 			jobId: z.string().optional().describe("Filter to one job id. Omit for all jobs."),
-			eventName: z.enum(["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated"]).optional().describe("Which event. A grade is split across ScoreRecorded (execution score) + ValidityRecorded (AI verdict) + NewLeader (best valid grade advanced). Default ScoreRecorded."),
-			fromBlock: z.string().optional().describe("Start block (decimal or hex). Default: last 50000 blocks."),
+			eventName: z
+				.enum(["ScoreRecorded", "ValidityRecorded", "NewLeader", "JobResolved", "JobCreated"])
+				.optional()
+				.describe("Which event. Default ScoreRecorded."),
+			fromBlock: z.string().optional().describe("Start block (decimal or hex). Default: last ~5000 blocks."),
 		},
 	},
 	async (args) =>
@@ -196,10 +213,10 @@ server.registerTool(
 		description:
 			"Run a candidate submission through the REAL Honeycomb grader and return its grading callback: execution score (0..10000), validity verdict, and both attestation digests. directional -> scorer.py over a price series; lp -> lp_scorer.py (Demeter) over a pool CSV. Needs INFERENCE_API_KEY_VAR; lp needs the grading-cre demeter venv on PATH.",
 		inputSchema: {
-			submissionPath: z.string().describe("Absolute path to the submission file."),
+			submissionPath: z.string().describe("Repo-relative path to the submission file (the hosted API rejects absolute paths)."),
 			bounty: z.enum(["directional", "lp"]).optional().describe("Scorer to use. Default directional."),
 			jobId: z.string().optional().describe("Job id to stamp on the callback. Default 1."),
-			agentId: z.number().int().optional().describe("ERC-8004 agentId of the submitter. Default 22."),
+			agentId: z.string().optional().describe("ERC-8004 agentId of the submitter. Default 22."),
 		},
 	},
 	async (args) => ok(await post("/grade", args)),

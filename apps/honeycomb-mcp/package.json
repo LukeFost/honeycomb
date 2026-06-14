@@ -3,19 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "MCP server: drive Honeycomb bounty creation, job monitoring, reputation reads, and local grading from Claude Code.",
-  "bin": {
-    "honeycomb-mcp": "server.ts"
-  },
+  "description": "Honeycomb bounty-lifecycle ENGINE: the tool functions (create/monitor/grade/reputation) + the Sepolia chain client. Not a server itself — apps/honeycomb-api imports these and exposes them over HTTP; the plugins/honeycomb shim is the single front door.",
   "scripts": {
-    "start": "bun server.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@honeycomb/chain": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "viem": "^2.52.2",
-    "zod": "^4.4.3"
+    "viem": "^2.52.2"
   },
   "devDependencies": {
     "@types/bun": "^1.1.0",
