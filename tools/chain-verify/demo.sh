@@ -38,8 +38,13 @@ export BQ_REPUTATION_REGISTRY="$REG"
 export BQ_REPUTATION_TOPIC0="0x464064d02dd8555dc4a1d0316f1fecfc0f9f549816f9231af2f1d24dc78be894"
 export BQ_VALIDATION_REGISTRY="$ESC"
 export BQ_VALIDATION_TOPIC0="0x4c9b4b2b0502a4f8deaf051eea1568760ec7c9d24fc3a69ff8a0905f7a60fd43"
+# Layer 2: point the escrow decoders at the mock so /api/refresh SQL-decodes its events into the
+# market tables (the SAME path production runs once a real escrow's address is set here).
+export BQ_ESCROW_ADDRESS="$ESC"
 export BQ_START="1970-01-01"
 export BQ_CACHE_TTL_MS="2000"   # short TTL so the page reflects the seed within ~2s
+# Gate for POST /api/refresh — the demo drives the REAL production loop (not a side script).
+export REFRESH_TOKEN="honeycomb-demo-refresh"
 
 mkdir -p "$RUN"
 tsx() { (cd "$HARNESS" && pnpm exec tsx "$@"); }
@@ -65,7 +70,8 @@ cmd_up() {
       BQ_IDENTITY_REGISTRY="$BQ_IDENTITY_REGISTRY" BQ_REPUTATION_REGISTRY="$BQ_REPUTATION_REGISTRY" \
       BQ_REPUTATION_TOPIC0="$BQ_REPUTATION_TOPIC0" \
       BQ_VALIDATION_REGISTRY="$BQ_VALIDATION_REGISTRY" BQ_VALIDATION_TOPIC0="$BQ_VALIDATION_TOPIC0" \
-      BQ_START="$BQ_START" BQ_CACHE_TTL_MS="$BQ_CACHE_TTL_MS" \
+      BQ_ESCROW_ADDRESS="$BQ_ESCROW_ADDRESS" \
+      BQ_START="$BQ_START" BQ_CACHE_TTL_MS="$BQ_CACHE_TTL_MS" REFRESH_TOKEN="$REFRESH_TOKEN" \
       GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_APPLICATION_CREDENTIALS" \
       pnpm exec next dev -p "$PORT" >"$RUN/web.log" 2>&1 & echo $! >"$RUN/web.pid")
     echo "• dashboard starting on :$PORT…"
@@ -83,16 +89,19 @@ cmd_seed() {
   (cd "$CONTRACTS" && forge script script/DeployAndSeed.s.sol:DeployAndSeed \
       --rpc-url "$RPC" --private-key "$KEY_PK" --broadcast >"$RUN/seed.log" 2>&1) \
       || { echo "seed failed — see $RUN/seed.log"; exit 1; }
-  echo "2/4  index raw ERC-8004 + escrow logs → $BQ_LOGS_TABLE…"
+  echo "2/4  index RAW ERC-8004 + escrow logs → $BQ_LOGS_TABLE (the only off-chain step)…"
   tsx src/indexer.ts "$REG"
   tsx src/indexer.ts "$ESC"
-  echo "3/4  decode escrow events → market tables…"
-  tsx src/marketIndexer.ts "$ESC"
-  echo "4/4  materialize Layer-1 (SQL decode → agent_trust view)…"
-  tsx scripts/materialize.ts
+  echo "3/4  POST the REAL /api/refresh → BigQuery SQL-decodes Layer 1 + Layer 2 → the tables…"
+  curl -fsS -X POST -H "x-refresh-token: $REFRESH_TOKEN" "http://localhost:$PORT/api/refresh" \
+      >"$RUN/refresh.json" \
+      || { echo "refresh failed — is the server up with REFRESH_TOKEN? try '$0 reset'. See $RUN/web.log"; cat "$RUN/refresh.json" 2>/dev/null; exit 1; }
+  echo "     $(cat "$RUN/refresh.json")"
+  echo "4/4  assert the dashboard matches the on-chain scenario (golden values)…"
+  PORT="$PORT" tsx scripts/assert-demo.ts || { echo "golden assertions FAILED"; exit 1; }
 
   echo
-  echo "✅ SEEDED — refresh http://localhost:$PORT (give it ~2s for the cache to roll)."
+  echo "✅ SEEDED via the production loop — refresh http://localhost:$PORT (give it ~2s for the cache to roll)."
   echo "   Directory: a 10-wallet sybil ring flagged, organic agent #11 on top."
   echo "   Market: agent #11 leads on earned reputation; self-dealer #3 ≈ 0 despite a 97 enclave score."
 }

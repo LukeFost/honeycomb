@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { BQ_LOCATION, getBigQuery } from "@/lib/bqClient";
-import { refreshWindowSql, refreshRegistrationsSql, refreshFeedbackSql, refreshLogInsertSql } from "@/lib/bq";
+import {
+  refreshWindowSql,
+  refreshRegistrationsSql,
+  refreshFeedbackSql,
+  refreshLogInsertSql,
+  refreshBountiesSql,
+  refreshSubmissionsSql,
+  refreshValidationsSql,
+  refreshSettlementsSql,
+  ESCROW_CONFIGURED,
+} from "@/lib/bq";
 import { queryStoreMeta } from "@/lib/queries";
 import { clearCache } from "@/lib/cache";
 
@@ -56,10 +66,25 @@ export async function POST(req: Request) {
     const { scan_from: from, scan_through: through } = rows[0] as { scan_from: string; scan_through: string };
 
     // 2. incremental MERGE per table (each its own job → its own byte cap)
+    // Layer 1 — identity + reputation → the Directory.
     const registrations = await merge(refreshRegistrationsSql(from));
     const feedback = await merge(refreshFeedbackSql(from));
 
-    // 3. advance the watermark + surface new data immediately
+    // Layer 2 — the bounty market, decoded over the SAME watermark window. Skipped entirely
+    // unless an escrow is configured (BQ_ESCROW_ADDRESS), so default production config scans
+    // nothing beyond Layer 1 — no cost regression while the escrow is unconfigured. Each table
+    // is its own direct job with its own byte cap, exactly like Layer 1.
+    const layer2 = ESCROW_CONFIGURED
+      ? {
+          bounties: await merge(refreshBountiesSql(from)),
+          submissions: await merge(refreshSubmissionsSql(from)),
+          validations: await merge(refreshValidationsSql(from)),
+          settlements: await merge(refreshSettlementsSql(from)),
+        }
+      : null;
+
+    // 3. advance the watermark + surface new data immediately. refresh_log keeps its Layer-1
+    // schema; the shared scanned_through watermark covers Layer 2 too (same logs, same window).
     if (!dryRun) {
       await bq.query({
         query: refreshLogInsertSql(from, through, registrations.inserted, feedback.inserted),
@@ -69,13 +94,17 @@ export async function POST(req: Request) {
     }
 
     const meta = await queryStoreMeta();
+    const layer2Gb = layer2
+      ? layer2.bounties.scannedGb + layer2.submissions.scannedGb + layer2.validations.scannedGb + layer2.settlements.scannedGb
+      : 0;
     return NextResponse.json({
       ok: true,
       mode: dryRun ? "dryrun" : "run",
       window: { from, through },
       registrations,
       feedback,
-      scannedGb: registrations.scannedGb + feedback.scannedGb,
+      layer2,
+      scannedGb: registrations.scannedGb + feedback.scannedGb + layer2Gb,
       asOf: meta.asOf,
       asOfBlock: meta.asOfBlock,
       lastRefresh: meta.lastRefresh,

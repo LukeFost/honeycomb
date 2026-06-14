@@ -10,6 +10,8 @@
     "bq:setup": "tsx scripts/setup-test-dataset.ts",
     "bq:teardown": "tsx scripts/teardown-test-dataset.ts",
     "index": "tsx src/indexer.ts",
+    "gen:sql": "tsx scripts/gen-schema.ts",
+    "demo:assert": "tsx scripts/assert-demo.ts",
     "e2e:validation": "tsx scripts/run-validation-count.ts",
     "e2e:layer1": "tsx scripts/run-layer1-e2e.ts"
   },

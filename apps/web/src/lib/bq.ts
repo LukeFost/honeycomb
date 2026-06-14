@@ -80,12 +80,66 @@ export const VALIDATION_REGISTRY = {
 
 export const VALIDATION_CONFIGURED = _validationAddress.length > 0;
 
+// The Honeycomb bounty-market escrow — emits the full bounty lifecycle (BountyCreated /
+// SubmissionMade / ValidationRecorded / BountySettled). The SAME warehouse-native decode→MERGE
+// machinery that fills the Layer-1 tables fills the Layer-2 market tables from these events, so
+// there is NO off-chain indexer in the production path. There is no production escrow deployed
+// yet, so the address defaults to "" (like VALIDATION_REGISTRY): the refresh loop SKIPS Layer 2
+// while unconfigured, leaving production cost identical to Layer-1-only. Point BQ_ESCROW_ADDRESS
+// at the deployed escrow (the demo points it at the local mock) and the loop decodes its events.
+//
+// The four topic0s are fixed by the event ABI (each verified with `cast keccak`); the mock in
+// contracts/ mirrors that exact ABI, so the demo decodes with the identical SQL mainnet will.
+// The events are deliberately SQL-friendly: every field is fixed-width except a single trailing
+// `string` (a bounty's `title`, a submission's `cid`) — `category` is a bytes32 enum — so the
+// decode never has to slice two dynamic blobs (see the multi-string trap in the handoff doc §5).
+const _escrowAddress = (envVar("BQ_ESCROW_ADDRESS") || "").toLowerCase();
+export const ESCROW = {
+  label: "Honeycomb Escrow",
+  address: _escrowAddress,
+  status: _escrowAddress ? "configured" : "pending deployment",
+  events: {
+    // BountyCreated(uint256 bountyId, address requester, bytes32 category, uint256 rewardWei,
+    //   uint64 deadline, string title)
+    bountyCreated: {
+      name: "BountyCreated",
+      topic0: "0x7181b860d66cc03cb89eda8049475d4486cf99c9599224e9a07f700ccde35aca",
+    },
+    // SubmissionMade(uint256 bountyId, uint256 agentId, string submissionCid)
+    submissionMade: {
+      name: "SubmissionMade",
+      topic0: "0xfbc293ba94b87743a04695df6178945fc536676da953723d06353bbd5002b22d",
+    },
+    // ValidationRecorded(uint256 bountyId, uint256 agentId, address validator, uint8 response,
+    //   bool valid, bytes32 responseHash) — the bounty-linked enclave verdict. Carries bounty_id
+    //   + the valid flag the leaderboard needs (the bare EF ValidationResponse carries neither).
+    validationRecorded: {
+      name: "ValidationRecorded",
+      topic0: "0x4c9b4b2b0502a4f8deaf051eea1568760ec7c9d24fc3a69ff8a0905f7a60fd43",
+    },
+    // BountySettled(uint256 bountyId, uint256 winnerAgentId, uint32 winnerScore, bytes32 attestationHash)
+    bountySettled: {
+      name: "BountySettled",
+      topic0: "0xb6f53784b074065f4f949859a7ac4cd18a1ec35eeb4c18d474da7b76e5782d40",
+    },
+  },
+} as const;
+
+/** Whether a Layer-2 escrow address is configured. When false the refresh loop skips Layer 2
+ *  entirely, so default (production) config scans nothing beyond Layer 1. */
+export const ESCROW_CONFIGURED = _escrowAddress.length > 0;
+
 /** First block_timestamp at which ERC-8004 events appear on mainnet. */
 export const HISTORY_START = "2026-01-28";
 
 /** Window the materialized snapshot (analysis/*.csv) covers; also the default start for
  *  the live provenance queries. */
 export const WINDOW = { start: "2026-05-14", end: "2026-06-12", days: 30 } as const;
+
+/** Backfill floor for the refresh watermark when refresh_log is empty. Defaults to the mainnet
+ *  history window (WINDOW.start) so production is unchanged; the demo overrides it with
+ *  BQ_START=1970-01-01 so on-chain events emitted at any local-clock time are still captured. */
+export const REFRESH_START = envVar("BQ_START") || WINDOW.start;
 
 /** A counting query for one registry event since `start`. Used live (dry-run + execute). */
 export function countSql(address: string, topic0: string, start: string): string {
@@ -205,7 +259,7 @@ export const REFRESH_LAG_MINUTES = Number(
  *  never going backwards. The MERGEs scan \`block_timestamp >= scan_from\` (no upper
  *  bound — clustering prunes the tail); recording scan_through advances the watermark
  *  even when the sparse feedback stream produced no new events, so scans stay cheap. */
-export function refreshWindowSql(ds = HONEYCOMB_DATASET, lagMinutes = REFRESH_LAG_MINUTES, start = WINDOW.start): string {
+export function refreshWindowSql(ds = HONEYCOMB_DATASET, lagMinutes = REFRESH_LAG_MINUTES, start = REFRESH_START): string {
   // Returned as clean second-precision ISO strings: a sub-second-precision literal in the
   // MERGE's WHERE defeats the optimizer's monthly-partition pruning (it would scan all
   // history). Block timestamps are second-granularity, so this loses nothing.
@@ -278,12 +332,28 @@ export function refreshFeedbackSql(wmIso: string, ds = HONEYCOMB_DATASET): strin
  *  so the source scan prunes to the tail), and writes a refresh-log row. Steady-state
  *  incremental runs scan little; a cold backfill via CALL needs the project's default
  *  bytes-billed ceiling raised (or use the app /api/refresh route, which sets its own). */
-export function refreshProcedureSql(ds = HONEYCOMB_DATASET, start = WINDOW.start, lagMinutes = REFRESH_LAG_MINUTES): string {
+export function refreshProcedureSql(ds = HONEYCOMB_DATASET, start = REFRESH_START, lagMinutes = REFRESH_LAG_MINUTES): string {
   // The watermark is injected as a clean second-precision literal (%s) so partition
   // pruning holds; scan_through is truncated to the second so it stays clean when read back.
   const regMerge = mergeRegistrationsSql(decodeRegisteredSql("AND block_timestamp >= TIMESTAMP('%s')"), ds);
   const fbMerge = mergeFeedbackSql(decodeFeedbackSql("AND block_timestamp >= TIMESTAMP('%s')"), ds);
   const cleanFrom = "FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', scan_from, 'UTC')";
+  // Layer 2 runs in the same watermark window. Gated on a configured escrow so a production
+  // proc generated with no escrow is byte-identical to the Layer-1-only version (no extra scan).
+  // Counts aren't tracked separately — refresh_log keeps its Layer-1 schema; the shared
+  // scanned_through watermark is what makes the next incremental run cheap.
+  const wm = "AND block_timestamp >= TIMESTAMP('%s')";
+  const ei = (sql: string) => `  EXECUTE IMMEDIATE FORMAT("""\n${sql}\n  """, ${cleanFrom});`;
+  const layer2 = ESCROW_CONFIGURED
+    ? "\n" +
+      [
+        ei(mergeBountiesSql(decodeBountiesSql(wm), ds)),
+        ei(mergeSubmissionsSql(decodeSubmissionsSql(wm), ds)),
+        ei(mergeValidationsSql(decodeValidationsSql(wm), ds)),
+        ei(mergeSettlementsSql(decodeSettlementsSql(wm), ds)),
+      ].join("\n") +
+      "\n"
+    : "";
   return `CREATE OR REPLACE PROCEDURE \`${ds}.refresh\`()
 BEGIN
   DECLARE scan_from TIMESTAMP DEFAULT (
@@ -305,7 +375,7 @@ ${regMerge}
 ${fbMerge}
   """, ${cleanFrom});
   SET fb_added = @@row_count;
-
+${layer2}
   INSERT \`${ds}.refresh_log\` (refreshed_at, scanned_from, scanned_through, registrations_added, feedback_added)
   VALUES (CURRENT_TIMESTAMP(), scan_from, scan_through, reg_added, fb_added);
 END;`;
@@ -425,10 +495,12 @@ export function storeMetaSql(ds = HONEYCOMB_DATASET): string {
 }
 
 // ===========================================================================
-// Layer 2 — the bounty market. Decoded from the (mock) Honeycomb escrow's events by the
-// indexer into these tables; reputation.ts reads them to build the earned-reputation
-// leaderboard. On mainnet these become SQL-decoded from the real escrow + Validation
-// Registry — the serving reads below stay identical.
+// Layer 2 — the bounty market. Decoded from the Honeycomb escrow's events by the SAME
+// BigQuery decode→MERGE loop as Layer 1 (no off-chain indexer in the production path): the
+// /api/refresh route scans LOGS_TABLE for ESCROW.{event} and upserts into these tables, which
+// reputation.ts reads to build the earned-reputation leaderboard. The demo points LOGS_TABLE +
+// BQ_ESCROW_ADDRESS at a local mock so it exercises this identical SQL; the serving reads below
+// stay identical whether the source is the mainnet public table or the demo fixture.
 // ===========================================================================
 
 /** DDL for the Layer-2 market tables. Idempotent (CREATE … IF NOT EXISTS). */
@@ -449,6 +521,164 @@ CREATE TABLE IF NOT EXISTS \`${ds}.settlements\` (
   bounty_id INT64, winner_agent_id INT64, winner_score INT64, attestation_hash STRING,
   settled_at TIMESTAMP, block_number INT64, tx_hash STRING, log_index INT64
 );`;
+}
+
+// --- Layer-2 decoders: raw escrow logs → the market-table shapes -------------------------
+// Same offset math as Layer 1 (see decodeRegisteredSql + the handoff doc §7). `data` is the
+// public-table STRING column ('0x'+hex, lowercase); SUBSTR is 1-indexed, so data word k
+// (0-indexed) is SUBSTR(data, 3 + k*64, 64). Indexed params come from `topics`. Every event is
+// fixed-width except one trailing `string`, so each decoder slices at most one dynamic blob.
+
+/** Decode `BountyCreated` → honeycomb.bounties. `category` is a bytes32 enum (trailing NUL
+ *  padding trimmed); `title` is the lone trailing string — the head is 4 words (category,
+ *  rewardWei, deadline, title-offset=0x80), so the title length sits at byte 128 (char 259) and
+ *  its bytes at char 323. `reward_eth` = rewardWei/1e18, summed over eight 32-bit big-endian
+ *  limbs in FLOAT64 because a >9.2-ether reward in wei overflows INT64 (SAFE_CAST → NULL). */
+export function decodeBountiesSql(where = ""): string {
+  return `SELECT
+      SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64)        AS bounty_id,
+      CONCAT('0x', SUBSTR(topics[SAFE_OFFSET(2)], 27))  AS requester,
+      RTRIM(SAFE_CONVERT_BYTES_TO_STRING(FROM_HEX(SUBSTR(data, 3, 64))),
+            CODE_POINTS_TO_STRING([0]))                 AS category,
+      SAFE_CONVERT_BYTES_TO_STRING(FROM_HEX(SUBSTR(
+        data, 323,
+        2 * SAFE_CAST(CONCAT('0x', SUBSTR(data, 259, 64)) AS INT64)
+      )))                                               AS title,
+      (SELECT SUM(SAFE_CAST(CONCAT('0x', SUBSTR(data, 67 + i * 8, 8)) AS INT64) * POW(2, 32 * (7 - i)))
+         FROM UNNEST(GENERATE_ARRAY(0, 7)) AS i) / 1e18 AS reward_eth,
+      block_timestamp                                   AS created_at,
+      TIMESTAMP_SECONDS(SAFE_CAST(CONCAT('0x', SUBSTR(data, 131, 64)) AS INT64)) AS deadline,
+      block_number,
+      transaction_hash                                  AS tx_hash,
+      log_index
+    FROM \`${LOGS_TABLE}\`
+    WHERE address = '${ESCROW.address}'
+      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.bountyCreated.topic0}'
+      ${where}`;
+}
+
+/** Decode `SubmissionMade` → honeycomb.submissions. submissionCid is the only non-indexed
+ *  param (a trailing string at offset 0x20 — same layout as decodeRegisteredSql's agent_uri). */
+export function decodeSubmissionsSql(where = ""): string {
+  return `SELECT
+      SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64) AS bounty_id,
+      SAFE_CAST(topics[SAFE_OFFSET(2)] AS INT64) AS agent_id,
+      SAFE_CONVERT_BYTES_TO_STRING(FROM_HEX(SUBSTR(
+        data, 131,
+        2 * SAFE_CAST(CONCAT('0x', SUBSTR(data, 67, 64)) AS INT64)
+      )))                                        AS submission_cid,
+      block_timestamp                            AS submitted_at,
+      block_number,
+      transaction_hash                           AS tx_hash,
+      log_index
+    FROM \`${LOGS_TABLE}\`
+    WHERE address = '${ESCROW.address}'
+      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.submissionMade.topic0}'
+      ${where}`;
+}
+
+/** Decode `ValidationRecorded` → honeycomb.validations (the bounty-linked enclave verdict).
+ *  All fixed-width: validator (address, right-aligned in word0), response (uint8, word1),
+ *  valid (bool, word2), responseHash (bytes32, word3). */
+export function decodeValidationsSql(where = ""): string {
+  return `SELECT
+      SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64)              AS bounty_id,
+      SAFE_CAST(topics[SAFE_OFFSET(2)] AS INT64)              AS agent_id,
+      CONCAT('0x', SUBSTR(data, 27, 40))                      AS validator,
+      SAFE_CAST(CONCAT('0x', SUBSTR(data,  67, 64)) AS INT64) AS response,
+      SAFE_CAST(CONCAT('0x', SUBSTR(data, 131, 64)) AS INT64) != 0 AS valid,
+      CONCAT('0x', SUBSTR(data, 195, 64))                     AS response_hash,
+      block_timestamp                                         AS validated_at,
+      block_number,
+      transaction_hash                                        AS tx_hash,
+      log_index
+    FROM \`${LOGS_TABLE}\`
+    WHERE address = '${ESCROW.address}'
+      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.validationRecorded.topic0}'
+      ${where}`;
+}
+
+/** Decode `BountySettled` → honeycomb.settlements. winnerScore (uint32, word0), attestationHash
+ *  (bytes32, word1); both fixed-width. */
+export function decodeSettlementsSql(where = ""): string {
+  return `SELECT
+      SAFE_CAST(topics[SAFE_OFFSET(1)] AS INT64)            AS bounty_id,
+      SAFE_CAST(topics[SAFE_OFFSET(2)] AS INT64)            AS winner_agent_id,
+      SAFE_CAST(CONCAT('0x', SUBSTR(data, 3, 64)) AS INT64) AS winner_score,
+      CONCAT('0x', SUBSTR(data, 67, 64))                    AS attestation_hash,
+      block_timestamp                                       AS settled_at,
+      block_number,
+      transaction_hash                                      AS tx_hash,
+      log_index
+    FROM \`${LOGS_TABLE}\`
+    WHERE address = '${ESCROW.address}'
+      AND topics[SAFE_OFFSET(0)] = '${ESCROW.events.bountySettled.topic0}'
+      ${where}`;
+}
+
+// --- Layer-2 MERGEs: idempotent on (tx_hash, log_index), mirroring mergeRegistrationsSql ----
+
+/** MERGE a decoded `BountyCreated` source SELECT into the bounties table. */
+export function mergeBountiesSql(source: string, ds = HONEYCOMB_DATASET): string {
+  return `MERGE \`${ds}.bounties\` T
+USING (
+${source}
+) S
+ON T.tx_hash = S.tx_hash AND T.log_index = S.log_index
+WHEN NOT MATCHED THEN
+  INSERT (bounty_id, requester, category, title, reward_eth, created_at, deadline, block_number, tx_hash, log_index)
+  VALUES (S.bounty_id, S.requester, S.category, S.title, S.reward_eth, S.created_at, S.deadline, S.block_number, S.tx_hash, S.log_index)`;
+}
+
+/** MERGE a decoded `SubmissionMade` source SELECT into the submissions table. */
+export function mergeSubmissionsSql(source: string, ds = HONEYCOMB_DATASET): string {
+  return `MERGE \`${ds}.submissions\` T
+USING (
+${source}
+) S
+ON T.tx_hash = S.tx_hash AND T.log_index = S.log_index
+WHEN NOT MATCHED THEN
+  INSERT (bounty_id, agent_id, submission_cid, submitted_at, block_number, tx_hash, log_index)
+  VALUES (S.bounty_id, S.agent_id, S.submission_cid, S.submitted_at, S.block_number, S.tx_hash, S.log_index)`;
+}
+
+/** MERGE a decoded `ValidationRecorded` source SELECT into the validations table. */
+export function mergeValidationsSql(source: string, ds = HONEYCOMB_DATASET): string {
+  return `MERGE \`${ds}.validations\` T
+USING (
+${source}
+) S
+ON T.tx_hash = S.tx_hash AND T.log_index = S.log_index
+WHEN NOT MATCHED THEN
+  INSERT (bounty_id, agent_id, validator, response, valid, response_hash, validated_at, block_number, tx_hash, log_index)
+  VALUES (S.bounty_id, S.agent_id, S.validator, S.response, S.valid, S.response_hash, S.validated_at, S.block_number, S.tx_hash, S.log_index)`;
+}
+
+/** MERGE a decoded `BountySettled` source SELECT into the settlements table. */
+export function mergeSettlementsSql(source: string, ds = HONEYCOMB_DATASET): string {
+  return `MERGE \`${ds}.settlements\` T
+USING (
+${source}
+) S
+ON T.tx_hash = S.tx_hash AND T.log_index = S.log_index
+WHEN NOT MATCHED THEN
+  INSERT (bounty_id, winner_agent_id, winner_score, attestation_hash, settled_at, block_number, tx_hash, log_index)
+  VALUES (S.bounty_id, S.winner_agent_id, S.winner_score, S.attestation_hash, S.settled_at, S.block_number, S.tx_hash, S.log_index)`;
+}
+
+// --- Layer-2 refresh wrappers: one incremental (or backfill) MERGE per table, each run as its
+// own direct job by /api/refresh. `wmIso` is the scan watermark — pass REFRESH_START to backfill.
+export function refreshBountiesSql(wmIso: string, ds = HONEYCOMB_DATASET): string {
+  return mergeBountiesSql(decodeBountiesSql(`AND block_timestamp >= TIMESTAMP('${wmIso}')`), ds);
+}
+export function refreshSubmissionsSql(wmIso: string, ds = HONEYCOMB_DATASET): string {
+  return mergeSubmissionsSql(decodeSubmissionsSql(`AND block_timestamp >= TIMESTAMP('${wmIso}')`), ds);
+}
+export function refreshValidationsSql(wmIso: string, ds = HONEYCOMB_DATASET): string {
+  return mergeValidationsSql(decodeValidationsSql(`AND block_timestamp >= TIMESTAMP('${wmIso}')`), ds);
+}
+export function refreshSettlementsSql(wmIso: string, ds = HONEYCOMB_DATASET): string {
+  return mergeSettlementsSql(decodeSettlementsSql(`AND block_timestamp >= TIMESTAMP('${wmIso}')`), ds);
 }
 
 /** Serving reads for the Layer-2 market (small decoded tables — never the raw logs). */

@@ -27,16 +27,22 @@ pnpm install            # once
 
 ## How it works
 
+- **One production path for both layers.** The mocks emit events; `src/indexer.ts` lands their
+  **raw logs** in `honeycomb_demo.logs`; then `seed` **POSTs the real `/api/refresh`**, which
+  BigQuery-SQL-decodes them with the exact `bq.ts` `decode*`/`merge*` the app runs on mainnet.
+  The only off-chain step is copying raw logs into the public-table-shaped fixture — there is no
+  off-chain decode anywhere in the path.
 - **Layer 1 (Directory):** `MockErc8004` emits `Registered` (topic0 `0xca52…`, identical to the EF
   contract) + a decode-compatible `NewFeedback`. `demo.sh` points `BQ_IDENTITY_REGISTRY` /
-  `BQ_REPUTATION_REGISTRY` / `BQ_REPUTATION_TOPIC0` (and `BQ_LOGS_TABLE` / `BQ_DATASET`) at the
-  mock + `honeycomb_demo`, so the **real `bq.ts` SQL** decodes/scores it. Raw logs → `src/indexer.ts`
-  → `scripts/materialize.ts` (`MERGE` + `agent_trust` view).
-- **Layer 2 (market):** `MockHoneycombEscrow` emits the bounty lifecycle; `src/marketIndexer.ts`
-  decodes it (viem) into `honeycomb_demo.{bounties,submissions,validations,settlements}`, which
-  `reputation.ts` reads.
+  `BQ_REPUTATION_REGISTRY` / `BQ_REPUTATION_TOPIC0` at the mock → `registrations` / `feedback` +
+  the `agent_trust` scoring view.
+- **Layer 2 (market):** `MockHoneycombEscrow` emits the bounty lifecycle as **SQL-friendly events**
+  (every field fixed-width except one trailing `string`; `category` is a `bytes32` enum). `demo.sh`
+  sets `BQ_ESCROW_ADDRESS` → the same refresh loop fills `bounties` / `submissions` / `validations`
+  / `settlements`, which `reputation.ts` reads.
 - **Defaults unchanged:** with none of the `BQ_*` overrides set, `bq.ts` targets the real EF
-  mainnet contracts + public dataset exactly as in production.
+  mainnet contracts + public dataset exactly as in production — and `/api/refresh` skips Layer 2
+  entirely until `BQ_ESCROW_ADDRESS` is set, so production scans nothing beyond Layer 1.
 
 ## Lower-level pieces (used by `demo.sh`)
 
@@ -44,18 +50,19 @@ pnpm install            # once
 |---|---|
 | `../../contracts/src/MockErc8004.sol`, `MockHoneycombEscrow.sol` | the mock contracts |
 | `../../contracts/script/DeployAndSeed.s.sol` | deploys + emits the scenario (`forge script … --broadcast`) |
-| `src/indexer.ts <addr>` | raw logs → `honeycomb_demo.logs` (Layer-1 SQL-decode source) |
-| `src/marketIndexer.ts <escrow>` | escrow events → Layer-2 tables (viem decode) |
-| `scripts/setup-test-dataset.ts` / `teardown-test-dataset.ts` | (re)create / drop the dataset |
-| `scripts/materialize.ts` | `MERGE` raw logs → `registrations`/`feedback` + `agent_trust` view |
+| `src/indexer.ts <addr>` | raw logs → `honeycomb_demo.logs` (the SQL-decode source for **both** layers) |
+| `scripts/setup-test-dataset.ts` / `teardown-test-dataset.ts` | (re)create / drop the dataset (tables + `agent_trust` view) |
+| `scripts/assert-demo.ts` (`pnpm demo:assert`) | golden assertions over `/api/market` + `/api/agents` (run after `seed`) |
+| `scripts/gen-schema.ts` (`pnpm gen:sql`) | emit canonical DDL / view / refresh proc → `docs/honeycomb-bigquery.sql` from `bq.ts` |
 | `scripts/inspect-db.ts` | list datasets/tables/row-counts |
 | `pnpm run contracts:test` | offline topic0/layout assertions for the contracts |
 
 ## Guardrails
 
-- These indexers are **fixture loaders for the demo, not production ingestion** (sponsor §3:
-  production Layer-1 reads mainnet via BigQuery's public dataset). The `e2e:*` scripts refuse to
-  run if `BQ_LOGS_TABLE` resolves to the mainnet table and cap `maximumBytesBilled` at 1 GB.
+- `src/indexer.ts` is a **fixture loader for the demo, not production ingestion** — it only copies
+  RAW logs into the public-table-shaped fixture; the decode is the real `bq.ts` SQL either way
+  (sponsor §3: production reads mainnet via BigQuery's public dataset). The `e2e:*` scripts refuse
+  to run if `BQ_LOGS_TABLE` resolves to the mainnet table and cap `maximumBytesBilled` at 1 GB.
 - No `bq`/`gcloud` CLI needed — everything uses the `@google-cloud/bigquery` SDK + the SA key
   found by walking up to `honeycomb/.secrets/gcp-key.json`.
 

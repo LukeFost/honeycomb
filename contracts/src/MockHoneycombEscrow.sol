@@ -3,19 +3,25 @@ pragma solidity ^0.8.20;
 
 /// @title MockHoneycombEscrow
 /// @notice Mock Honeycomb escrow + enclave validation for the demo's Layer-2 bounty market.
-/// Emits the full bounty lifecycle; the indexer (viem) decodes these into
-/// honeycomb_demo.{bounties,submissions,validations,settlements}, which apps/web reputation.ts
-/// reads to build the earned-reputation leaderboard. Not a real escrow — it holds no funds and
-/// runs no enclave; it emits the event shapes only so the dashboard can populate from a chain
-/// you control. A bounty is "open" until a BountySettled is seen for it.
+/// Emits the full bounty lifecycle whose byte layout the REAL apps/web/src/lib/bq.ts decode SQL
+/// parses (decodeBountiesSql / decodeSubmissionsSql / decodeValidationsSql / decodeSettlementsSql):
+/// pointing BQ_ESCROW_ADDRESS at this contract drives honeycomb.{bounties,submissions,validations,
+/// settlements} through the same warehouse-native decode→MERGE loop production runs — no off-chain
+/// indexer. apps/web reputation.ts reads those tables to build the earned-reputation leaderboard.
+/// Not a real escrow — it holds no funds and runs no enclave; it emits the event shapes only so
+/// the dashboard can populate from a chain you control. A bounty is "open" until a BountySettled.
+///
+/// Events are designed SQL-friendly (handoff doc §5): every field is fixed-width except a single
+/// trailing `string`, so the decoder never slices two dynamic blobs. `BountyCreated.category` is
+/// therefore a bytes32 enum and `title` is the lone trailing string.
 contract MockHoneycombEscrow {
     event BountyCreated(
         uint256 indexed bountyId,
         address indexed requester,
-        string category,
-        string title,
+        bytes32 category,
         uint256 rewardWei,
-        uint64 deadline
+        uint64 deadline,
+        string title
     );
     event SubmissionMade(uint256 indexed bountyId, uint256 indexed agentId, string submissionCid);
     event ValidationRecorded(
@@ -33,12 +39,12 @@ contract MockHoneycombEscrow {
     function createBounty(
         uint256 bountyId,
         address requester,
-        string calldata category,
-        string calldata title,
+        bytes32 category,
         uint256 rewardWei,
-        uint64 deadline
+        uint64 deadline,
+        string calldata title
     ) external {
-        emit BountyCreated(bountyId, requester, category, title, rewardWei, deadline);
+        emit BountyCreated(bountyId, requester, category, rewardWei, deadline, title);
     }
 
     function submit(uint256 bountyId, uint256 agentId, string calldata submissionCid) external {

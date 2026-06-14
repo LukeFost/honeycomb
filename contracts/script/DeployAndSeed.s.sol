@@ -55,11 +55,12 @@ contract DeployAndSeed {
         address enclave = addr(999);
         uint64 deadline = uint64(block.timestamp + 7 days);
 
-        esc.createBounty(1, reqA, "audit", "Audit an ERC-4626 vault", 5 ether, deadline);
-        esc.createBounty(2, reqB, "trading-strategy", "Backtest a funding-rate arb", 8 ether, deadline);
-        esc.createBounty(3, reqC, "zk-proof", "Prove Merkle inclusion in Halo2", 3 ether, deadline);
-        esc.createBounty(4, reqD, "data-labeling", "Label 10k toxicity samples", 2 ether, deadline);
-        esc.createBounty(5, owner(3), "evals", "Eval harness for a 7B model", 4 ether, deadline); // self-dealt
+        // createBounty(bountyId, requester, bytes32 category, rewardWei, deadline, string title)
+        esc.createBounty(1, reqA, "audit", 5 ether, deadline, "Audit an ERC-4626 vault");
+        esc.createBounty(2, reqB, "trading-strategy", 8 ether, deadline, "Backtest a funding-rate arb");
+        esc.createBounty(3, reqC, "zk-proof", 3 ether, deadline, "Prove Merkle inclusion in Halo2");
+        esc.createBounty(4, reqD, "data-labeling", 2 ether, deadline, "Label 10k toxicity samples");
+        esc.createBounty(5, owner(3), "evals", 4 ether, deadline, "Eval harness for a 7B model"); // self-dealt
 
         esc.submit(1, 11, "ipfs://s-1-11");
         esc.submit(1, 5, "ipfs://s-1-5");
