@@ -145,6 +145,30 @@ function shapeEntry(e: Record<string, unknown>): LogEntry {
 	} else if (typeof e.protoPayload === "object" && e.protoPayload) {
 		text = JSON.stringify(e.protoPayload);
 	}
+	// Cloud Run's request access logs carry NO payload — the useful bits live in the
+	// httpRequest field (method, status, URL, latency). Those are the dominant entry
+	// kind for an HTTP service, so without this fallback the panel renders blank rows.
+	// Compose a concise request line; the URL still passes through redact() below so a
+	// key embedded in a query string (?token=…) is scrubbed like anywhere else.
+	if (!text && e.httpRequest && typeof e.httpRequest === "object") {
+		const h = e.httpRequest as Record<string, unknown>;
+		const method = typeof h.requestMethod === "string" ? h.requestMethod : "";
+		const status = h.status != null ? String(h.status) : "";
+		const reqUrl = typeof h.requestUrl === "string" ? h.requestUrl : "";
+		const latency = typeof h.latency === "string" ? h.latency : "";
+		// Show the path (+query) rather than the full origin — the host is constant
+		// and just adds noise. Fall back to the raw value if it isn't a parseable URL.
+		let pathPart = reqUrl;
+		if (reqUrl) {
+			try {
+				const u = new URL(reqUrl);
+				pathPart = u.pathname + u.search;
+			} catch {
+				pathPart = reqUrl;
+			}
+		}
+		text = [method, status, pathPart, latency].filter(Boolean).join(" ");
+	}
 	return {
 		timestamp: typeof e.timestamp === "string" ? e.timestamp : null,
 		severity: typeof e.severity === "string" ? e.severity : "DEFAULT",
