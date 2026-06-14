@@ -1,7 +1,7 @@
 import { loadSnapshot } from "@/lib/snapshot";
 import { loadMarket } from "@/lib/reputation";
 import { DATASET } from "@/lib/bq";
-import { Hex, Card, Chip, SectionLabel, truncAddr, cn } from "@/components/ui";
+import { Card, Chip, SectionLabel, truncAddr, cn } from "@/components/ui";
 import DirectoryTable from "@/components/DirectoryTable";
 import EarnedReputationTable from "@/components/EarnedReputationTable";
 import BountyBoard from "@/components/BountyBoard";
@@ -16,19 +16,7 @@ export default async function Page() {
   const { agents, withReputation } = snap;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6">
-      {/* ---- header ---- */}
-      <header className="sticky top-0 z-20 -mx-4 mb-8 border-b border-edge bg-paper/80 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <Hex size={26} />
-            <span className="text-lg font-semibold tracking-tight">Honeycomb</span>
-            <span className="hidden text-sm text-ink-2 sm:inline">· Bounty Market</span>
-          </div>
-          <Chip tone="brand">Google BigQuery</Chip>
-        </div>
-      </header>
-
+    <div className="mx-auto w-full max-w-6xl px-4 pb-20 pt-8 sm:px-6">
       {/* ---- layer 2: earned reputation + bounty market ---- */}
       <section className="mb-12">
         <SectionLabel>Bounty market</SectionLabel>
