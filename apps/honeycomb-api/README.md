@@ -26,6 +26,20 @@ on-chain reads/writes against **BountyEscrow on Sepolia**.
 
 ## Routes
 
+**Live base URL:** `https://honeycomb-api-tykk6w3mfa-uc.a.run.app`
+(stable alias `https://honeycomb-api-912224428574.us-central1.run.app`). Both are
+permanent — only the Cloud Run revision tag changes across deploys.
+
+**Auth in one line:** reads need nothing; **writes require the shared token** via
+either `Authorization: Bearer <token>` or `X-Honeycomb-Token: <token>`. The token
+lives in Secret Manager (`honeycomb-api-token`) and is mounted in prod; ask a
+maintainer for the value. Three failures, all loud:
+`401 unauthorized` (wrong/missing token) · `503 write routes are disabled`
+(server has no `HONEYCOMB_API_TOKEN`) · `400` (token OK, body bad — this is the
+signal your token works).
+
+### Reads — no token
+
 | Method | Path | What it does | Secrets |
 | --- | --- | --- | --- |
 | GET | `/` | Health: `{name, status, port}`. | none |
@@ -33,16 +47,40 @@ on-chain reads/writes against **BountyEscrow on Sepolia**.
 | GET | `/jobs?limit=N` | Recent bounties, newest first. | none |
 | GET | `/jobs/:id` | One job's full state: status, reward, deadline, best *valid* grade, `settled`, winner wallet. | none |
 | GET | `/events?eventName=&jobId=&fromBlock=` | Decoded `ScoreRecorded` / `ValidityRecorded` / `NewLeader` / `JobResolved` / `JobCreated` logs (page-safe under the Goldsky 1k-block cap). | none |
+| GET | `/spec?...` | Resolve a bounty's spec. | none |
+| GET | `/gcs` | Off-chain content index (specs / sealed submissions) from Neon `gcs_objects`. | `DATABASE_URL` |
 | GET | `/reputation?mode=&agentId=&limit=` | ERC-8004 reputation from BigQuery: `counts` / `feedback` / `leaderboard`. | BigQuery auth |
-| POST | `/bounties` | Open + fund a bounty. **BROADCASTS a real Sepolia tx.** Body = the `create_bounty` args (`rewardUSDC`, `hoursToDeadline`, `bountyDir`, ...). | `SEP_PRIVATE_KEY` |
-| POST | `/grade` | Run a submission through the **real grader** → score + validity + attestation digests. Body = `{submissionPath, bounty?, jobId?, agentId?}`. | demeter venv, `INFERENCE_API_KEY_VAR` |
 
-Read routes need no secrets (reputation needs BigQuery auth). Errors surface
-faithfully as JSON `{error}` with a 4xx/5xx status — no silent fallback.
+### Writes — token required
+
+| Method | Path | What it does | Required body | Secrets |
+| --- | --- | --- | --- | --- |
+| POST | `/bounties` | Open + fund a bounty. **BROADCASTS a real Sepolia tx.** | optional `rewardUSDC`, `hoursToDeadline`, `bountyDir` (repo-relative) | `SEP_PRIVATE_KEY` |
+| POST | `/bounties/draft` | Gasless funding step 1: compute the commitment, return an x402 402-challenge to sign. **No USDC spent.** | same as `/bounties` | `SEP_PRIVATE_KEY` |
+| POST | `/bounties/finalize` | Gasless funding step 2: settle the signed EIP-3009 auth (relayer pays gas), then broadcast `createBounty`. | `draftId`, `signature`, `authorization` (object) | `SEP_PRIVATE_KEY`, facilitator |
+| POST | `/bounties/:id/resolve-early` | Maker closes a contest early (`resolveEarly`); escrow enforces caller = client. | none | `SEP_PRIVATE_KEY` |
+| POST | `/grade` | Run a submission through the **real grader** → score + validity + attestation digests. | `submissionPath` (repo-relative) | demeter venv, `INFERENCE_API_KEY_VAR` |
+| POST | `/submit` | Solver one-call front door: read bounty → grade → record both gates on-chain (CRE) → plain-English verdict. | `jobId`, `submissionPath` (repo-relative) | grade deps + CRE relay/CLI |
+| POST | `/agents/register` | Mint an ERC-8004 agent identity (real on-chain tx; pre-checks signer gas). | optional `tokenURI` | `SEP_PRIVATE_KEY` |
+| POST | `/snapshot?jobs=N&lookback=N` | Snapshot live chain → Neon (jobs upsert + events append). Normally driven by Cloud Scheduler. | none | `DATABASE_URL` |
+
+Errors surface faithfully as JSON `{error}` with a 4xx/5xx status — no silent
+fallback. `submissionPath` / `bountyDir` must be **repo-relative**: an absolute
+path (leading `/`) is rejected `400` over HTTP — the absolute-path escape is
+local-operator-only.
 
 `jobId` is a string everywhere (ERC-8183 ids can exceed 2^53). The query/body
 shapes mirror the plugin's tool params exactly; see [`GET /skill`](#run) for the
 canonical parameter reference.
+
+Example write call:
+
+```sh
+curl -s -X POST https://honeycomb-api-tykk6w3mfa-uc.a.run.app/grade \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"submissionPath": "submissions/clean.py"}'
+```
 
 ## Run
 
@@ -59,10 +97,10 @@ bun run --cwd apps/honeycomb-api typecheck
 `PORT` (or `HONEYCOMB_API_PORT`) overrides the port; default `8787`.
 
 The server binds **loopback (`127.0.0.1`) by default** — the write routes broadcast
-funded txs and spawn the grader, so they must not be reachable from the LAN. The
-write routes (`POST /bounties`, `POST /grade`) are **disabled unless
-`HONEYCOMB_API_TOKEN` is set**, and then require it on every call via
-`Authorization: Bearer <token>` or the `X-Honeycomb-Token` header. To expose
+funded txs and spawn the grader, so they must not be reachable from the LAN. All
+write routes (every `POST` above) are **disabled unless `HONEYCOMB_API_TOKEN` is
+set**, and then require it on every call via `Authorization: Bearer <token>` or
+the `X-Honeycomb-Token` header. To expose
 beyond loopback (don't, unless you mean it), set `HOST=0.0.0.0` AND a token.
 
 ```sh
