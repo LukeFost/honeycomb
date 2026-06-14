@@ -102,6 +102,42 @@ PRIVATE_SERIES = os.environ.get(
     ),
 )
 
+# ---------------------------------------------------------------------------
+# Worker filesystem jail.
+#
+# The "no-peek by construction" guarantee covers the DATA channel: the worker
+# gets per-bar snapshots over stdin and never a reference to the private
+# DataFrame. It does NOT cover the filesystem -- a malicious on_bar() can open
+# PRIVATE_DATA_DIR by absolute path and exfiltrate the held-out series over its
+# own stdout. (Verified: a deny-network-only sandbox still leaked the CSVs.)
+#
+# Close exactly that vector: deny the worker any read of PRIVATE_DATA_DIR.
+# sandbox-exec resolves symlinks + "../" before matching, so absolute, cwd-
+# relative, and traversal paths all collapse to the same denied subpath. We
+# leave the rest of the filesystem readable on purpose -- a deny-default
+# file-read profile would have to enumerate every dyld/framework path the
+# interpreter needs just to launch (and the homebrew Cellar path carries the
+# exact python patch version), so it breaks on the next `brew upgrade`. The
+# only secret on this box is the private data; denying that subpath is the
+# whole job. The Linux Confidential Space enclave has no sandbox-exec; it gets
+# its own hardening (landlock / non-root USER) -- this wrapper no-ops there so
+# the same scorer.py runs unmodified in both places.
+def _jail_cmd(cmd):
+    """Prefix cmd with a macOS sandbox-exec jail denying reads of the private
+    data dir. On platforms without sandbox-exec (Linux enclave) return cmd
+    unchanged -- those rely on container-level isolation instead."""
+    sb = "/usr/bin/sandbox-exec"
+    if not os.path.exists(sb):
+        return cmd
+    private = os.path.realpath(PRIVATE_DATA_DIR)
+    profile = (
+        "(version 1)\n"
+        "(allow default)\n"
+        f'(deny file-read* (subpath "{private}"))\n'
+    )
+    return [sb, "-p", profile, *cmd]
+
+
 # Uniswap pool: USDC/WETH 0.05% on Ethereum
 # fee=0.05 -> tick_spacing = int(0.05*200) = 10, fee_rate = 0.0005
 USDC = TokenInfo(name="USDC", decimal=6)
@@ -258,7 +294,7 @@ def score(submission_path: str) -> int:
     # Spawn the untrusted worker ONCE. It will stream per-bar snapshots.
     r3_fd, w3_fd = os.pipe()
     proc = subprocess.Popen(
-        [sys.executable, WORKER, submission_path, str(w3_fd)],
+        _jail_cmd([sys.executable, WORKER, submission_path, str(w3_fd)]),
         stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,   # submission owns stdout; parent ignores it
         stderr=subprocess.DEVNULL,
