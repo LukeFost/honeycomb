@@ -23,6 +23,12 @@ export const ESCROW = (process.env.ESCROW ??
 	"0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90") as Address;
 export const USDC = (process.env.USDC ??
 	"0x3211C5E4B4d57B673d67a976699121667f419e17") as Address;
+// Execution enclave's score-signer. createBounty registers this as the job's
+// attesterKey; the escrow ecrecovers each recorded grade against it (BountyEscrow
+// .sol:214), so it MUST be the live KMS signer (grader/HANDOFF.md:88). The escrow
+// rejects attesterKey == 0. Override per-bounty with ATTESTER_KEY.
+export const ATTESTER_KEY = (process.env.ATTESTER_KEY ??
+	"0x5B57aF5eBAd44bEEfdfCcd71F33359d74Ec0e86F") as Address;
 
 // ERC-8004 Identity Registry on Sepolia (winner wallet lookups happen inside the
 // escrow's resolve; surfaced here only for reference / future tools).
@@ -40,10 +46,15 @@ export const JOB_STATUS = [
 export type JobStatusName = (typeof JOB_STATUS)[number];
 
 // --- ABI (subset) -----------------------------------------------------------
-// getJob returns the full Job struct; the tuple order MUST match BountyEscrow.sol
-// struct Job exactly (id, client, provider, evaluator, budget, expiredAt, status,
-// token, testsHash, specCid, bestAgentId, bestScore, bestScoreAtt, bestValidityAtt,
-// gradeCount).
+// getJob returns the full Job struct; the tuple order MUST match the DEPLOYED
+// BountyEscrow at ESCROW (Sepolia 0xC054…), which is the 15-field struct (id,
+// client, provider, evaluator, budget, expiredAt, status, token, testsHash,
+// specCid, bestAgentId, bestScore, bestScoreAtt, bestValidityAtt, gradeCount).
+// NOTE: BountyEscrow.sol source has since added `attesterKey` after specCid (the
+// G11 score-binding), but that contract is NOT redeployed yet — adding the field
+// here would mis-decode the live 15-field struct. Re-add attesterKey + the
+// createBounty(…,address) arg in lockstep with the redeploy. Verified 2026-06-13:
+// 15-field decode reads job #1 score 2282 / agent 6552 clean.
 const JOB_TUPLE = {
 	type: "tuple",
 	components: [
@@ -70,6 +81,8 @@ export const ESCROW_ABI = [
 		type: "function",
 		name: "createBounty",
 		stateMutability: "nonpayable",
+		// 4-arg: matches the DEPLOYED escrow. Source adds a 5th `attesterKey`
+		// (address) arg, gated on the redeploy — see JOB_TUPLE note.
 		inputs: [
 			{ name: "budget", type: "uint256" },
 			{ name: "expiredAt", type: "uint64" },
