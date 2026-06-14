@@ -1,0 +1,10 @@
+{
+  "name": "@honeycomb/chain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared on-chain constants (canonical Sepolia RPC, chain ids).",
+  "exports": {
+    "./sepolia": "./sepolia.ts"
+  }
+}

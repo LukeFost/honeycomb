@@ -1,0 +1,24 @@
+{
+  "name": "honeycomb-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server: drive Honeycomb bounty creation, job monitoring, reputation reads, and local grading from Claude Code.",
+  "bin": {
+    "honeycomb-mcp": "server.ts"
+  },
+  "scripts": {
+    "start": "bun server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@honeycomb/chain": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "viem": "^2.52.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "5.9.3"
+  }
+}

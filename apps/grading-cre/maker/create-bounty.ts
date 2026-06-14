@@ -14,10 +14,13 @@
 // ============================================================================
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { execSync } from "node:child_process";
+// grading-cre is outside the pnpm workspace, so reach the shared constant by
+// relative path; bun resolves the .ts directly. Single source: packages/chain.
+import { SEPOLIA_RPC } from "../../../packages/chain/sepolia.ts";
 
-const RPC = process.env.RPC ?? "https://ethereum-sepolia-rpc.publicnode.com";
+const RPC = SEPOLIA_RPC;
 const PK = process.env.SEP_PRIVATE_KEY;
 const ESCROW = process.env.ESCROW ?? "0xC0543ac495B24948Ad84cD15d8488d7Af2F9ca90";
 const USDC = process.env.USDC ?? "0x3211C5E4B4d57B673d67a976699121667f419e17";
@@ -27,9 +30,14 @@ const reward = Number(process.argv[2] ?? 50); // human USDC (6dp token)
 const hours = Number(process.argv[3] ?? 1);
 const bountyDir = process.argv[4] ?? "maker/bounties/uniswap-lp-trading-bot";
 
-// 1. Commitment to the PRIVATE bundle (fixed order, never published).
-const privateFiles = ["private/rubric.md", "private/scoring.py", "private/prices_private.json"];
-const bundle = privateFiles.map((f) => readFileSync(`${bountyDir}/${f}`, "utf8")).join("\n--FILE--\n");
+// 1. Commitment to the PRIVATE bundle (never published). Hash whatever lives
+//    under the passed dir's private/ — sorted so the order is deterministic
+//    (readdir order is not). This makes testsHash commit to the SAME bundle the
+//    grader scores against, whichever bounty dir is passed (trading-bot ->
+//    rubric/scoring/prices_private.json; range-bot -> pool_private.csv +
+//    make_pool_data.py). Sort is load-bearing: a stable digest needs a stable order.
+const privateFiles = readdirSync(`${bountyDir}/private`).sort();
+const bundle = privateFiles.map((f) => readFileSync(`${bountyDir}/private/${f}`, "utf8")).join("\n--FILE--\n");
 const testsHash = "0x" + createHash("sha256").update(bundle).digest("hex");
 
 const budget = BigInt(Math.round(reward * 1e6)); // 6-decimal token base units

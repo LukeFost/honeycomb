@@ -27,8 +27,13 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { LPDecision } from "./decision.ts";
 import { executeLPDecision } from "./executor.ts";
 import { poolForChain } from "./pools.ts";
+import { SEPOLIA_RPC } from "@honeycomb/chain/sepolia";
 
-const RPC = process.env.FORK_RPC ?? "http://127.0.0.1:8545";
+// FORK_RPC wins (point at a local `anvil --fork-url` for fork mode). Unset ->
+// the shared canonical Sepolia RPC, so this can also swing at LIVE Sepolia.
+// NOTE: live mode needs a FUNDED key; the anvil test key below only works on a
+// fork. Override the signer before broadcasting against live Sepolia.
+const RPC = process.env.FORK_RPC ?? SEPOLIA_RPC;
 const CHAIN_ID = Number(process.env.FORK_CHAIN_ID ?? 11155111);
 // anvil account 0 — a PUBLIC, well-known test key. Never a real secret.
 const ANVIL_PK0 =
