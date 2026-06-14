@@ -1,39 +1,66 @@
 @import "tailwindcss";
 
-/* Honeycomb dashboard — a dark "agent-reputation terminal" theme.
-   Always dark (the prefers-color-scheme override below) for a consistent demo look. */
+/* Honeycomb dashboard — "bone white + yellow" light theme.
+   Warm bone paper + espresso ink. Bright yellow is used only for FILLS/ACCENTS (logo,
+   brand chip, primary buttons, active states, one tinted hero KPI); a deeper GOLD carries
+   any honey-toned text/numbers so they stay legible on a light background. */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
+  /* surfaces */
+  --color-paper: #f1ecdf;     /* page (bone white) */
+  --color-paper-2: #ece6d6;   /* deeper bone — insets, code */
+  --color-card: #fbf9f3;      /* cream-white raised surface */
+  --color-card-2: #f7f3ea;    /* secondary surface — table header, chips, inputs */
+
+  /* ink (warm, never pure black) */
+  --color-ink: #221f18;       /* headings */
+  --color-ink-1: #38342b;     /* body */
+  --color-ink-2: #6f6856;     /* secondary */
+  --color-ink-3: #a59c85;     /* faint / labels */
+
+  /* brand yellow — FILL only; gold for text */
   --color-honey: #f5b301;
-  --color-honey-bright: #ffcf4d;
-  --color-honey-dim: #8a6a12;
-  --color-organic: #34d399;
-  --color-sybil: #fb7185;
-  --color-panel: #121214;
-  --color-edge: rgba(255, 255, 255, 0.08);
+  --color-honey-bright: #ffc62b;
+  --color-gold: #8a6a12;      /* readable "honey" text on bone */
+  --color-gold-2: #6f5410;
+  --color-cocoa: #3a2c05;     /* dark text that sits ON a honey fill */
+
+  /* semantics (tuned for a light background) */
+  --color-organic: #0e7a53;
+  --color-sybil: #c0334e;
+
+  /* hairlines */
+  --color-edge: rgba(34, 31, 24, 0.1);
+  --color-edge-2: rgba(34, 31, 24, 0.16);
+
+  /* soft warm elevation */
+  --shadow-card: 0 1px 2px rgba(34, 31, 24, 0.05), 0 14px 34px -22px rgba(34, 31, 24, 0.28);
+  --shadow-soft: 0 1px 2px rgba(34, 31, 24, 0.05);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 :root {
-  --background: #0a0a0b;
-  --foreground: #ededee;
+  --background: #f1ecdf;
+  --foreground: #221f18;
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
-  /* faint honeycomb wash: two warm radial pools over near-black */
+  /* faint honey wash: two warm radial pools in the top corners */
   background-image:
-    radial-gradient(900px 500px at 12% -8%, rgba(245, 179, 1, 0.1), transparent 60%),
-    radial-gradient(800px 500px at 100% 0%, rgba(245, 179, 1, 0.05), transparent 55%);
+    radial-gradient(900px 460px at 10% -10%, rgba(245, 179, 1, 0.1), transparent 60%),
+    radial-gradient(760px 460px at 100% -4%, rgba(245, 179, 1, 0.06), transparent 55%);
   background-attachment: fixed;
 }
 
@@ -44,16 +71,16 @@ body {
 }
 
 ::selection {
-  background: rgba(245, 179, 1, 0.28);
+  background: rgba(245, 179, 1, 0.4);
 }
 
-/* slim dark scrollbars inside scrollable panels */
+/* slim scrollbars inside scrollable panels */
 .thin-scroll::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 .thin-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(34, 31, 24, 0.18);
   border-radius: 8px;
 }
 .thin-scroll::-webkit-scrollbar-track {

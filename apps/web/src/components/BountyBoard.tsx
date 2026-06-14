@@ -25,16 +25,16 @@ export default function BountyBoard({ bounties }: { bounties: Bounty[] }) {
       {bounties.map((b) => {
         const { label, daysLeft } = deadlineParts(b.deadline);
         return (
-          <div key={b.id} className="flex flex-col rounded-xl border border-edge bg-white/[0.02] p-4">
+          <div key={b.id} className="flex flex-col rounded-xl border border-edge bg-card-2 p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
               <Chip tone="muted">{CATEGORY_LABEL[b.category] ?? b.category}</Chip>
-              <span className="font-mono text-sm font-semibold text-honey-bright tnum">{b.rewardEth} ETH</span>
+              <span className="font-mono text-sm font-semibold text-gold tnum">{b.rewardEth} ETH</span>
             </div>
-            <div className="mb-3 text-sm font-medium leading-snug text-zinc-100">{b.title}</div>
-            <div className="mt-auto flex items-center justify-between text-[11px] text-zinc-500">
+            <div className="mb-3 text-sm font-medium leading-snug text-ink">{b.title}</div>
+            <div className="mt-auto flex items-center justify-between text-[11px] text-ink-2">
               <span className="font-mono">{truncAddr(b.requester)}</span>
               <span className="tnum">{b.submissions} subs</span>
-              <span className={daysLeft <= 5 ? "text-honey" : ""}>closes {label} · {daysLeft}d</span>
+              <span className={daysLeft <= 5 ? "text-gold" : ""}>closes {label} · {daysLeft}d</span>
             </div>
           </div>
         );

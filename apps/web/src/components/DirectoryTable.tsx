@@ -63,7 +63,7 @@ export default function DirectoryTable({ agents }: { agents: TrustAgent[] }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search agent, id, or service…"
-          className="w-full max-w-xs rounded-lg border border-edge bg-black/40 px-3 py-1.5 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-honey/50"
+          className="w-full max-w-xs rounded-lg border border-edge-2 bg-card-2 px-3 py-1.5 text-sm text-ink-1 outline-none placeholder:text-ink-3 focus:border-gold/50"
         />
         <div className="flex items-center gap-1">
           {FILTERS.map((f) => (
@@ -73,20 +73,20 @@ export default function DirectoryTable({ agents }: { agents: TrustAgent[] }) {
               className={cn(
                 "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
                 filter === f.key
-                  ? "border-honey/40 bg-honey/15 text-honey-bright"
-                  : "border-edge bg-white/[0.02] text-zinc-400 hover:text-zinc-200",
+                  ? "border-honey/60 bg-honey text-cocoa"
+                  : "border-edge-2 bg-card-2 text-ink-2 hover:text-ink",
               )}
             >
               {f.label}
             </button>
           ))}
         </div>
-        <span className="ml-auto text-xs text-zinc-500 tnum">{rows.length} agents</span>
+        <span className="ml-auto text-xs text-ink-3 tnum">{rows.length} agents</span>
       </div>
 
       <div className="thin-scroll max-h-[460px] overflow-auto rounded-xl border border-edge">
         <table className="w-full border-collapse text-sm">
-          <thead className="sticky top-0 z-10 bg-[#141416] text-left text-xs uppercase tracking-wide text-zinc-500">
+          <thead className="sticky top-0 z-10 bg-card-2 text-left text-xs uppercase tracking-wide text-ink-3">
             <tr>
               <Th onClick={() => onSort("name")} active={sortKey === "name"} asc={asc}>Agent</Th>
               <Th onClick={() => onSort("avgScore")} active={sortKey === "avgScore"} asc={asc} num>Raw</Th>
@@ -101,20 +101,20 @@ export default function DirectoryTable({ agents }: { agents: TrustAgent[] }) {
             {rows.map((a) => {
               const cat = CATEGORY[a.category];
               return (
-                <tr key={a.agentId} className="border-t border-white/[0.05] hover:bg-white/[0.02]">
+                <tr key={a.agentId} className="border-t border-edge hover:bg-card-2">
                   <td className="px-3 py-2">
-                    <div className="font-medium text-zinc-100">{a.name ?? `Agent #${a.agentId}`}</div>
-                    <div className="font-mono text-[11px] text-zinc-500 tnum">#{a.agentId}</div>
+                    <div className="font-medium text-ink">{a.name ?? `Agent #${a.agentId}`}</div>
+                    <div className="font-mono text-[11px] text-ink-3 tnum">#{a.agentId}</div>
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-zinc-400 tnum">{a.avgScore}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink-2 tnum">{a.avgScore}</td>
                   <td className="px-3 py-2 text-right tabular-nums tnum">
                     <span className={cn("font-semibold", scoreColor(a.category))}>{a.trustScore}</span>
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-zinc-400 tnum" title={`${a.feedbackCount} feedback events`}>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink-2 tnum" title={`${a.feedbackCount} feedback events`}>
                     {a.uniqueClients}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums tnum">
-                    <span className={a.independentClients >= 5 ? "text-organic" : a.independentClients >= 1 ? "text-honey-bright" : "text-zinc-600"}>
+                    <span className={a.independentClients >= 5 ? "text-organic" : a.independentClients >= 1 ? "text-gold" : "text-ink-3"}>
                       {a.independentClients}
                     </span>
                   </td>
@@ -124,7 +124,7 @@ export default function DirectoryTable({ agents }: { agents: TrustAgent[] }) {
                       {a.services.map((s) => (
                         <Chip key={s} tone="muted">{s}</Chip>
                       ))}
-                      {!a.x402 && a.services.length === 0 && <span className="text-xs text-zinc-600">—</span>}
+                      {!a.x402 && a.services.length === 0 && <span className="text-xs text-ink-3">—</span>}
                     </div>
                   </td>
                   <td className="px-3 py-2">
@@ -141,7 +141,7 @@ export default function DirectoryTable({ agents }: { agents: TrustAgent[] }) {
 }
 
 function scoreColor(c: TrustCategory): string {
-  return c === "organic" ? "text-organic" : c === "sybil" ? "text-sybil" : "text-honey-bright";
+  return c === "organic" ? "text-organic" : c === "sybil" ? "text-sybil" : "text-gold";
 }
 
 function Th({
@@ -161,7 +161,7 @@ function Th({
     <th className={cn("px-3 py-2 font-semibold", num && "text-right")}>
       <button
         onClick={onClick}
-        className={cn("inline-flex items-center gap-1 hover:text-zinc-200", active && "text-honey-bright")}
+        className={cn("inline-flex items-center gap-1 hover:text-ink", active && "text-gold")}
       >
         {children}
         <span className="text-[9px]">{active ? (asc ? "▲" : "▼") : "↕"}</span>

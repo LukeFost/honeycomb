@@ -16,9 +16,9 @@ const FLAG_TONE: Record<string, "organic" | "honey" | "sybil" | "muted"> = {
 };
 
 function scoreColor(score: number, basis: RepBasis): string {
-  if (basis !== "earned") return "text-zinc-400";
+  if (basis !== "earned") return "text-ink-2";
   if (score >= 70) return "text-organic";
-  if (score >= 40) return "text-honey-bright";
+  if (score >= 40) return "text-gold";
   return "text-sybil";
 }
 
@@ -26,7 +26,7 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
   return (
     <div className="thin-scroll overflow-x-auto rounded-xl border border-edge">
       <table className="w-full border-collapse text-sm">
-        <thead className="bg-[#141416] text-left text-xs uppercase tracking-wide text-zinc-500">
+        <thead className="bg-card-2 text-left text-xs uppercase tracking-wide text-ink-3">
           <tr>
             <th className="px-3 py-2 font-semibold">Agent</th>
             <th className="px-3 py-2 text-right font-semibold">Reputation</th>
@@ -39,10 +39,10 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
         </thead>
         <tbody>
           {agents.map((a) => (
-            <tr key={a.agentId} className="border-t border-white/[0.05] hover:bg-white/[0.02]">
+            <tr key={a.agentId} className="border-t border-edge hover:bg-card-2">
               <td className="px-3 py-2">
-                <div className="font-medium text-zinc-100">{a.name}</div>
-                <div className="font-mono text-[11px] text-zinc-500 tnum">
+                <div className="font-medium text-ink">{a.name}</div>
+                <div className="font-mono text-[11px] text-ink-3 tnum">
                   #{a.agentId} · {truncAddr(a.owner)}
                 </div>
               </td>
@@ -50,20 +50,20 @@ export default function EarnedReputationTable({ agents }: { agents: AgentReputat
                 <div className={cn("text-lg font-semibold tabular-nums tnum", scoreColor(a.effectiveScore, a.basis))}>
                   {a.effectiveScore.toFixed(1)}
                 </div>
-                <div className="text-[10px] uppercase tracking-wide text-zinc-600">{BASIS_LABEL[a.basis]}</div>
+                <div className="text-[10px] uppercase tracking-wide text-ink-3">{BASIS_LABEL[a.basis]}</div>
               </td>
-              <td className="px-3 py-2 text-right tabular-nums tnum text-zinc-400">
-                {a.globalTrust == null ? <span className="text-zinc-600">—</span> : a.globalTrust.toFixed(0)}
+              <td className="px-3 py-2 text-right tabular-nums tnum text-ink-2">
+                {a.globalTrust == null ? <span className="text-ink-3">—</span> : a.globalTrust.toFixed(0)}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums tnum text-zinc-400">
-                {a.avgEnclaveScore == null ? <span className="text-zinc-600">—</span> : a.avgEnclaveScore.toFixed(0)}
+              <td className="px-3 py-2 text-right tabular-nums tnum text-ink-2">
+                {a.avgEnclaveScore == null ? <span className="text-ink-3">—</span> : a.avgEnclaveScore.toFixed(0)}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums tnum text-zinc-300">
+              <td className="px-3 py-2 text-right tabular-nums tnum text-ink-1">
                 {a.bountiesWon}
-                <span className="text-zinc-600">/{a.bountiesEntered}</span>
+                <span className="text-ink-3">/{a.bountiesEntered}</span>
               </td>
               <td className="px-3 py-2 text-right tabular-nums tnum">
-                <span className={a.independentRequesters >= 3 ? "text-organic" : a.independentRequesters >= 1 ? "text-honey-bright" : "text-zinc-600"}>
+                <span className={a.independentRequesters >= 3 ? "text-organic" : a.independentRequesters >= 1 ? "text-gold" : "text-ink-3"}>
                   {a.independentRequesters}
                 </span>
               </td>
