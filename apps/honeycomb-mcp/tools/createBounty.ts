@@ -8,7 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { decodeEventLog, type Hex } from "viem";
 import {
 	ATTESTER_KEY,
@@ -87,7 +87,18 @@ export async function createBounty(args: {
 	const reward = args.rewardUSDC ?? 50;
 	const hours = args.hoursToDeadline ?? 1;
 	const relDir = args.bountyDir ?? "maker/bounties/uniswap-lp-trading-bot";
-	const bountyDir = isAbsolute(relDir) ? relDir : join(GRADING_CRE, relDir);
+	// A relative bountyDir MUST stay under apps/grading-cre — the docstring promises
+	// it, and the bundle gets read + hashed + committed on-chain, so an unbounded
+	// "../../" would read (and disclose the digest of) arbitrary files. Normalize
+	// with resolve() so "../" segments collapse before the prefix check. An absolute
+	// path is honored as a deliberate operator opt-out.
+	const bountyDir = isAbsolute(relDir) ? relDir : resolve(GRADING_CRE, relDir);
+	if (!isAbsolute(relDir)) {
+		const root = resolve(GRADING_CRE);
+		if (bountyDir !== root && !bountyDir.startsWith(root + sep)) {
+			throw new Error(`bountyDir escapes apps/grading-cre: ${relDir}`);
+		}
+	}
 	const attesterKey = (args.attesterKey ?? ATTESTER_KEY) as Address;
 
 	// 1. Commit to the PRIVATE bundle (never published). Default: the same sorted
@@ -151,7 +162,11 @@ export async function createBounty(args: {
 		deadlineISO: new Date(Number(deadline) * 1000).toISOString(),
 		testsHash,
 		specCid,
-		attesterKey,
+		// STAGED, not on-chain: the deployed escrow is 4-arg, so this resolved
+		// score-signer is NOT bound into the bounty yet. Named to make that
+		// explicit to anyone reading the result. See the args[] note above.
+		attesterKeyStaged: attesterKey,
+		attesterKeyOnChain: false,
 		approveTx: approveHash,
 		createTx: createHash_,
 		escrow: ESCROW,
