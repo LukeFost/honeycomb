@@ -1,14 +1,15 @@
 # ==========================================================================
 # CRE PROJECT SETTINGS — StrategyVault app
 # ==========================================================================
-# Per-target RPCs the CRE CLI uses (simulate / deploy). Mirrors grading-cre.
+# Per-target RPCs the CRE CLI uses (simulate / --broadcast). Targets Base mainnet
+# for the real end-to-end (clean V3 USDC/WETH fee-100 pool + a CRE forwarder).
 # ==========================================================================
 staging-settings:
   rpcs:
-    - chain-name: ethereum-testnet-sepolia
-      url: https://ethereum-sepolia-rpc.publicnode.com
+    - chain-name: ethereum-mainnet-base-1
+      url: https://base-rpc.publicnode.com
 
 production-settings:
   rpcs:
-    - chain-name: ethereum-testnet-sepolia
-      url: https://ethereum-sepolia-rpc.publicnode.com
+    - chain-name: ethereum-mainnet-base-1
+      url: https://base-rpc.publicnode.com

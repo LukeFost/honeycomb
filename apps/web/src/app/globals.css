@@ -222,6 +222,35 @@ body {
   color: #3a2600;
 }
 
+/* stepper dots (splash — How it works) */
+.hc-dot {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(32, 36, 43, 0.22);
+  background: transparent;
+  color: rgba(32, 36, 43, 0.5);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+.hc-dot-done {
+  border-color: rgba(217, 138, 8, 0.5);
+  color: #b9810f;
+}
+.hc-dot-on {
+  border-color: transparent;
+  background: linear-gradient(180deg, #f5b431, #e3940f);
+  color: #3a2600;
+  box-shadow: 0 4px 14px rgba(217, 138, 8, 0.4);
+  transform: scale(1.12);
+}
+
 /* ===== dashboard (mounted at /dashboard) =====
    The "bone white + yellow" dashboard theme is scoped to its own shell so the
    splash homepage above keeps main's base (:root/body) unchanged. */

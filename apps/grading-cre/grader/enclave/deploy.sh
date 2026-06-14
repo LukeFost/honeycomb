@@ -26,10 +26,12 @@ CS_IMAGE_FAMILY=confidential-space-debug
 
 IMAGE_DIGEST="${1:?need image digest (…/execution-enclave@sha256:…)}"
 SUBMISSION="${2:-clean.py}"
-BOUNTY_ID="${3:-uniswap-lp-trading-bot-round-1}"
+JOB_ID="${3:?need jobId (uint256)}"
+AGENT_ID="${4:?need agentId (uint256)}"
 VM_NAME="grader-enclave-$(echo "$SUBMISSION" | tr -dc 'a-z0-9')"
 
-# The container ENTRYPOINT is `python3 enclave_grade.py`; tee-cmd supplies its ARGS.
+# The container ENTRYPOINT is `python3 enclave_grade.py`; tee-cmd supplies its ARGS:
+#   <submission> <jobId> <agentId>  -> the enclave signs keccak256(jobId,agentId,score).
 # Submissions are baked into the image at /grader/submissions/.
 gcloud compute instances create "$VM_NAME" \
   --project="$PROJECT" --zone="$ZONE" \
@@ -41,7 +43,7 @@ gcloud compute instances create "$VM_NAME" \
   --scopes=https://www.googleapis.com/auth/cloud-platform \
   --image-project=confidential-space-images \
   --image-family="$CS_IMAGE_FAMILY" \
-  --metadata="^~^tee-image-reference=${IMAGE_DIGEST}~tee-container-log-redirect=true~tee-cmd=[\"submissions/${SUBMISSION}\",\"${BOUNTY_ID}\"]"
+  --metadata="^~^tee-image-reference=${IMAGE_DIGEST}~tee-container-log-redirect=true~tee-cmd=[\"submissions/${SUBMISSION}\",\"${JOB_ID}\",\"${AGENT_ID}\"]"
 
 echo
 echo "Launched $VM_NAME. Stream the in-enclave signed output with:"

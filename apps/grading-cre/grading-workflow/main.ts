@@ -61,13 +61,14 @@ type GradeCallback = {
 	status?: string; // "completed" | "failed"
 	score?: number; // execution score 0..10000 (real backtest PnL, scaled)
 	valid?: boolean; // AI validity verdict (valid && not hardcoded)
-	scoreAttestation?: string; // execution-enclave attestation digest (bytes32 hex)
 	validityAttestation?: string; // Confidential AI Attester digest (bytes32 hex)
+	// Execution-enclave KMS signature over keccak256(jobId, agentId, score).
+	signature?: { v?: number; r?: string; s?: string };
 };
 
 const ZERO_BYTES32 = "0x".padEnd(66, "0") as Hex;
 const RECORD_GRADE_ABI =
-	"uint256 jobId, uint256 agentId, uint16 score, bool valid, bytes32 scoreAtt, bytes32 validityAtt";
+	"uint256 jobId, uint256 agentId, uint16 score, bool valid, bytes32 validityAtt, uint8 v, bytes32 r, bytes32 s";
 const ACTION_ABI = "uint8 action, bytes data";
 
 /** Normalize a 32-byte hex digest (with or without 0x) to bytes32. */
@@ -116,10 +117,13 @@ export const onGrade = (runtime: Runtime<Config>, payload: HTTPPayload): string 
 	const agentId = BigInt(cb.agentId ?? 0);
 	const score = Math.max(0, Math.min(10000, Math.round(Number(cb.score ?? 0)))); // uint16
 	const valid = cb.valid === true;
-	const scoreAtt = cb.scoreAttestation ? toBytes32(cb.scoreAttestation) : ZERO_BYTES32;
 	const validityAtt = cb.validityAttestation ? toBytes32(cb.validityAttestation) : ZERO_BYTES32;
+	// Execution-enclave signature over keccak256(jobId, agentId, score); verified on-chain.
+	const v = Number(cb.signature?.v ?? 0);
+	const r = cb.signature?.r ? toBytes32(cb.signature.r) : ZERO_BYTES32;
+	const s = cb.signature?.s ? toBytes32(cb.signature.s) : ZERO_BYTES32;
 	runtime.log(
-		`recordGrade job=${jobId} agent=${agentId} score=${score} valid=${valid} scoreAtt=${scoreAtt} validityAtt=${validityAtt}`,
+		`recordGrade job=${jobId} agent=${agentId} score=${score} valid=${valid} v=${v} r=${r} s=${s}`,
 	);
 
 	const inner = encodeAbiParameters(parseAbiParameters(RECORD_GRADE_ABI), [
@@ -127,8 +131,10 @@ export const onGrade = (runtime: Runtime<Config>, payload: HTTPPayload): string 
 		agentId,
 		score,
 		valid,
-		scoreAtt,
 		validityAtt,
+		v,
+		r,
+		s,
 	]);
 	const report = actionReport(0, inner);
 
@@ -148,8 +154,8 @@ export const onGrade = (runtime: Runtime<Config>, payload: HTTPPayload): string 
 		agentId: agentId.toString(),
 		score,
 		valid,
-		scoreAttestationHash: scoreAtt,
 		validityAttestationHash: validityAtt,
+		scoreSig: { v, r, s },
 		write,
 	});
 };

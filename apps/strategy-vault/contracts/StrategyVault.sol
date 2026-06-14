@@ -84,7 +84,7 @@ contract StrategyVault is IReceiver {
     }
 
     address public owner;
-    address public immutable forwarder;
+    address public forwarder; // the trusted KeystoneForwarder; owner-settable (see setForwarder)
     Policy  public policy;
     mapping(address => bool) public isAllowedToken;
     mapping(bytes32 => bool) public usedNonce;
@@ -168,6 +168,12 @@ contract StrategyVault is IReceiver {
     function setExpectedWorkflowId(bytes32 id) external onlyOwner {
         expectedWorkflowId = id;
         emit ExpectedWorkflowIdSet(id);
+    }
+
+    /// @notice Update the trusted KeystoneForwarder (the only address allowed to call onReport).
+    ///         Needed because the live forwarder address is discovered at deploy/broadcast time.
+    function setForwarder(address f) external onlyOwner {
+        forwarder = f;
     }
 
     /// @notice One-time allowance setup so the Universal Router can pull `token` from the
