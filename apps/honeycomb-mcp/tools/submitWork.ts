@@ -17,16 +17,16 @@
 // ============================================================================
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 import { gradeSubmission } from "./grade.ts";
 import { getJob } from "./monitor.ts";
 
 // Resolve paths CWD-independently. Prefer the API/plugin contract (repo-relative)
 // but keep the old grader shorthand (relative to apps/grading-cre) working.
-const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
-const GRADING_CRE_ROOT = join(REPO_ROOT, "apps", "grading-cre");
+const REPO_ROOT = realpathSync(join(import.meta.dir, "..", "..", ".."));
+const GRADING_CRE_ROOT = realpathSync(join(REPO_ROOT, "apps", "grading-cre"));
 
 export const submitWorkInput = {
 	jobId: {
@@ -143,15 +143,28 @@ function readSubmission(submissionPath: string): {
 function resolveSubmissionPath(submissionPath: string): string {
 	if (isAbsolute(submissionPath)) {
 		if (!existsSync(submissionPath)) throw new Error(`submission file not found: ${submissionPath}`);
-		return submissionPath;
+		return assertRepoContained(submissionPath, submissionPath);
 	}
 	const repoRelative = resolve(REPO_ROOT, submissionPath);
-	if (existsSync(repoRelative)) return repoRelative;
+	if (existsSync(repoRelative)) return assertRepoContained(repoRelative, submissionPath);
 	const graderRelative = resolve(GRADING_CRE_ROOT, submissionPath);
-	if (existsSync(graderRelative)) return graderRelative;
+	if (existsSync(graderRelative)) return assertRepoContained(graderRelative, submissionPath);
 	throw new Error(
 		`submission file not found: ${submissionPath} (tried ${repoRelative} and ${graderRelative})`,
 	);
+}
+
+function assertRepoContained(candidatePath: string, originalPath: string): string {
+	const realCandidate = realpathSync(candidatePath);
+	if (!isPathInside(REPO_ROOT, realCandidate)) {
+		throw new Error(`submissionPath escapes the Honeycomb repo: ${originalPath}`);
+	}
+	return realCandidate;
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+	const rel = relative(root, candidate);
+	return rel === "" || (!!rel && !rel.startsWith("..") && !isAbsolute(rel));
 }
 
 // --- plain-English summary --------------------------------------------------

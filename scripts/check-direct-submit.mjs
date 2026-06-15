@@ -58,6 +58,9 @@ regex(submit, /const \{ resolvedPath, \.\.\.submission \} = submissionFile;/, "s
 includes(submit, 'submissionPath: resolvedPath', "submit_work grades the same resolved file it hashes");
 includes(submit, 'resolve(REPO_ROOT, submissionPath)', "submit_work prefers repo-relative paths");
 includes(submit, 'resolve(GRADING_CRE_ROOT, submissionPath)', "submit_work preserves old grader-relative shorthand");
+includes(submit, 'realpathSync(candidatePath)', "submit_work resolves symlinks before accepting a path");
+includes(submit, 'submissionPath escapes the Honeycomb repo', "submit_work rejects traversal/symlink escapes outside the repo");
+includes(submit, 'relative(root, candidate)', "submit_work uses containment checks rather than prefix string checks");
 
 // Grading defaults: direct/unattested unless explicitly opted in.
 includes(grade, 'const ENABLE_CONFIDENTIAL_AI = process.env.HONEYCOMB_ENABLE_CONFIDENTIAL_AI === "1"', "legacy AI validity requires explicit opt-in flag");
@@ -65,6 +68,8 @@ includes(grade, 'mode: "direct-unattested" as const', "grade.ts default validity
 includes(grade, 'const attestationDigest = sha256hex(`direct-validity|${filename}|${sha256hex(code)}`);', "grade.ts still emits a deterministic direct validity receipt");
 includes(grade, 'validityAttestation: validity.attestationDigest', "grade.ts returns the selected validity digest");
 includes(mcpGrade, 'const ENABLE_ENCLAVE_GRADING = process.env.HONEYCOMB_ENABLE_ENCLAVE_GRADING === "1"', "enclave grading requires explicit opt-in flag");
+includes(mcpGrade, 'realpathSync(candidate)', "grade_submission resolves symlinks before grading a path");
+includes(mcpGrade, 'submissionPath escapes the Honeycomb repo', "grade_submission rejects traversal/symlink escapes outside the repo");
 
 // API runtime/deploy script: no CRE install/secret/target in the active deploy path this PR can update.
 notIncludes(apiDockerfile, ["CRE_VERSION", "@chainlink/cre-sdk", "cre workflow", "grading-workflow bun", "cre CLI"], "API Dockerfile no longer installs CRE runtime pieces");

@@ -41,7 +41,10 @@ these invariants:
   explicit null tx/CID fields, and `wouldBeLeader` instead of fabricated
   `isLeader`.
 - `submit_work` hashes the exact file bytes, keeps the server-resolved absolute
-  path internal, and grades the same resolved file it hashed.
+  path internal, grades the same resolved file it hashed, and rejects traversal or
+  symlink escapes outside the repo.
+- `grade_submission` also rejects traversal or symlink escapes before shelling to
+  the grader.
 - validity defaults to `direct-unattested`; legacy Confidential AI and enclave
   grading require explicit opt-in flags.
 - the API Dockerfile and `apps/honeycomb-api/deploy.sh` do not install/mount CRE

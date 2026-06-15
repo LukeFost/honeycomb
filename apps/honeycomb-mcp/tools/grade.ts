@@ -14,8 +14,8 @@
 //     in the warm Confidential Space enclave and returns its signed score bundle.
 // ============================================================================
 
-import { existsSync, readFileSync } from "node:fs";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 
 import { recordGrade } from "../db/snapshot.ts";
 
@@ -38,8 +38,21 @@ const GRADE_TS = join(GRADER_DIR, "grade.ts");
 // the subprocess argv resolve against process.cwd(), which is NOT the repo root in the
 // Cloud Run image (WORKDIR is apps/honeycomb-api). Anchor relative paths here so the
 // "repo-relative" contract holds no matter where the server process was launched.
-const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
-const repoPath = (p: string) => (isAbsolute(p) ? p : resolve(REPO_ROOT, p));
+const REPO_ROOT = realpathSync(join(import.meta.dir, "..", "..", ".."));
+const repoPath = (p: string) => {
+	const candidate = isAbsolute(p) ? p : resolve(REPO_ROOT, p);
+	if (!existsSync(candidate)) throw new Error(`submission file not found: ${p}`);
+	const realCandidate = realpathSync(candidate);
+	if (!isPathInside(REPO_ROOT, realCandidate)) {
+		throw new Error(`submissionPath escapes the Honeycomb repo: ${p}`);
+	}
+	return realCandidate;
+};
+
+function isPathInside(root: string, candidate: string): boolean {
+	const rel = relative(root, candidate);
+	return rel === "" || (!!rel && !rel.startsWith("..") && !isAbsolute(rel));
+}
 
 // When explicitly enabled, execution grading can run in the warm Confidential
 // Space enclave over HTTP (POST /grade) after the local scorer. Direct mode keeps
@@ -59,7 +72,7 @@ const GRADER_VENV_BIN =
 export const gradeSubmissionInput = {
 	submissionPath: {
 		type: "string",
-		description: "Absolute path to the submission file (a .py for directional, a Strategy .py for lp).",
+		description: "Path to the submission file (a .py for directional, a Strategy .py for lp). Relative paths resolve from the repo root and must remain inside this repo.",
 	},
 	bounty: {
 		type: "string",
@@ -95,11 +108,11 @@ export async function gradeSubmission(args: {
 	}
 
 	// Stage 2: re-grade execution in the warm TEE for a KMS-signed, on-chain-recomputable
-	// score digest. Two ways to hand the submission to the enclave:
+	// score digest. This is a legacy/explicit opt-in path; direct submit does not require
+	// it. Two ways to hand the submission to the enclave:
 	//   • encCid set  -> SEALED path. Send only the on-chain encCid; the enclave fetches the
 	//     sealed ciphertext from GCS and opens it with its own secret INSIDE the TEE, so the
-	//     plaintext is never read here and never crosses the wire. This is the private path
-	//     the submit flow uses (submitWork seals -> encCid -> grade).
+	//     plaintext is never read here and never crosses the wire.
 	//   • encCid unset -> INLINE path. Read the source and POST it as `code` (the standalone
 	//     /grade route, which grades a path with no prior seal).
 	// The enclave requires exactly one of code/encCid, so we send exactly one.
