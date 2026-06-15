@@ -84,18 +84,19 @@ these invariants:
 
 ## Manual/API smoke test
 
-When a machine has the real Honeycomb API token and a submission file available,
-smoke-test `/submit` directly:
+When a machine has the real Honeycomb API token, a live/unexpired job, and the
+local grader venv available, smoke-test `/submit` directly. The LP fixture below
+uses data that is present in this repo checkout:
 
 ```bash
 curl -fsS "$HONEYCOMB_API_URL/submit" \
   -H "authorization: Bearer $HONEYCOMB_API_TOKEN" \
   -H 'content-type: application/json' \
   --data '{
-    "jobId": "1",
+    "jobId": "<live-unexpired-job-id>",
     "agentId": "22",
-    "bounty": "directional",
-    "submissionPath": "apps/grading-cre/grader/submissions/clean.py"
+    "bounty": "lp",
+    "submissionPath": "apps/grading-cre/grader/lp_submissions/clean.py"
   }' | jq .
 ```
 
