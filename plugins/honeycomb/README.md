@@ -3,7 +3,7 @@
 A thin Claude Code plugin for the Honeycomb bounty lifecycle. It does **not** run the
 grader, the chain client, or BigQuery on your machine. It ships a stdio MCP server (a
 shim) that forwards every bounty-lifecycle tool to a hosted `honeycomb-api` over HTTP.
-All the heavy work (viem, the Demeter venv, the TEE grader, BigQuery) stays server-side.
+All the heavy work (viem, the Demeter venv, optional TEE/enclave grading, BigQuery) stays server-side.
 
 The plugin's only runtime dependencies are `@modelcontextprotocol/sdk` and `zod`.
 
@@ -18,9 +18,9 @@ need the write token; the rest are read-only and work without one):
 | `create_bounty_draft` | ✓ | Gasless funding step 1 (x402): computes the bounty commitment **without** broadcasting and returns a 402-challenge (PaymentRequirements + EIP-712 typed-data to sign). | `POST /bounties/draft` |
 | `finalize_bounty` | ✓ | Gasless funding step 2 (x402): settles the funder's signed EIP-3009 authorization through the facilitator, then broadcasts `createBounty`. | `POST /bounties/finalize` |
 | `resolve_early` | ✓ | Close one of *your* bounties before its deadline — settles to the best valid leader, or refunds you if there's none. | `POST /bounties/{jobId}/resolve-early` |
-| `submit_work` | ✓ | Solver one-call front door: grade your strategy file, record both gates (score + validity) on-chain, report whether you're the leader. | `POST /submit` |
+| `submit_work` | ✓ | Solver one-call direct front door: grade your strategy/work file, return a direct receipt (`submission.sha256`), and report whether it would beat the current on-chain leader. Does **not** record on-chain. | `POST /submit` |
 | `register_agent` | ✓ | Mint an ERC-8004 agent identity (an NFT) so you can compete; returns your new `agentId`. | `POST /agents/register` |
-| `grade_submission` | ✓ | Run a submission through the real TEE grader: execution score + validity verdict + both attestation digests. | `POST /grade` |
+| `grade_submission` | ✓ | Run a submission through the real scorer: execution score + validity metadata + receipt digests. Direct mode has no Chainlink/Confidential-AI dependency. | `POST /grade` |
 | `get_job` | | Read one job's full state: status, reward, deadline, best valid grade, settled, winner wallet. | `GET /jobs/{jobId}` |
 | `list_jobs` | | Recent bounties, newest first. | `GET /jobs?limit=` |
 | `job_events` | | Decoded `ScoreRecorded` / `ValidityRecorded` / `NewLeader` / `JobResolved` / `JobCreated` / `Submitted` logs. | `GET /events?eventName=&jobId=&fromBlock=` |
@@ -97,39 +97,20 @@ Uniswap pool data, ran the real `scorer.py`, and made a **real AI validity call*
 `score`, `valid`, and both attestation digests (`scoreAttestation`, `validityAttestation`).
 This is the genuine, non-stubbed path.
 
-### The honest boundary (what an external user hits today)
+### Direct submit boundary
 
-Two things stop a *cold* external caller from getting a score back through the **hosted**
-API, and both are deliberate, not bugs:
+`submit_work` is now intentionally direct/off-chain. It reads the live bounty state,
+runs the scorer, and returns a durable work receipt (`submission.sha256`) plus
+`recordedOnChain: false`. It does not call Chainlink CRE, does not require an
+enclave signature, and does not claim the on-chain leaderboard changed. If the
+result would beat the current chain leader, the response says `wouldBeLeader: true`
+without fabricating `isLeader`.
 
-1. **The private market series is not in the hosted image.** The grader *code*, scorer, and
-   sample submissions ship in the container, but the sealed price CSVs are git-ignored and
-   `.dockerignore`'d out (Dockerfile comment: *"drops the host .venv / node_modules / private
-   price series"*). The hosted Cloud Run API is **not trusted** to hold the private data —
-   that data belongs in the TEE. So a `grade_submission` call on the hosted API raises a
-   loud `OSError: resource file … not found` from the scorer instead of fabricating a score.
-2. **`grade_submission` always grades *locally first*, even with the enclave configured.**
-   The deployed service *does* set `GRADER_ENCLAVE_URL=http://10.128.0.14:8000` (the internal
-   VPC IP of the warm Confidential Space VM). But `gradeSubmission()` runs the local grader
-   first — it needs the local AI-validity attestation, which the TEE does not produce — and
-   only *then* supersedes the execution score with the enclave's KMS-signed digest. So the
-   local-data gap in (1) is hit before the enclave is ever called.
-
-   The full sealed flow (`submit_work`, which seals the submission to the job's
-   `enclaveEncPub`, uploads the ciphertext to GCS, and hands the enclave only the `encCid`)
-   is also blocked one step earlier: the live bounties carry the **placeholder**
-   `enclaveEncPub = 0x2222…` (confirmed via `get_job 2` above), which is exactly what the
-   not-yet-integrated *summon* flow would replace with a real per-VM enclave key.
-   `submit_work` correctly **refuses** to seal to an unopenable placeholder rather than
-   produce a submission no one can decrypt.
-
-**Bottom line:** the plugin front door works end-to-end over real MCP today — discovery,
-all read tools against live chain + BigQuery data, and the write-auth gate. The grading
-*code* is fully functional (proven locally with real data + a real inference call). The one
-integration not yet wired is **summon**: minting a per-bounty enclave key (replacing the
-`0x2222…` placeholder) and provisioning the private series into that VM. Until then, the
-hosted `grade_submission`/`submit_work` path correctly fails loud at the data/key boundary
-instead of faking a result.
+`grade_submission` also defaults to direct validity metadata: `validityMode:
+"direct-unattested"`. To run the legacy AI validity check for a specific demo, enable
+it explicitly on the API host with `HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1` and provide
+`INFERENCE_API_KEY_VAR`. To run enclave execution grading, explicitly set
+`HONEYCOMB_ENABLE_ENCLAVE_GRADING=1` and `GRADER_ENCLAVE_URL`.
 
 ## How it works
 

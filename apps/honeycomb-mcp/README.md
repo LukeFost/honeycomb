@@ -12,7 +12,7 @@ functions and the Sepolia chain client that every surface imports.
 tools/createBounty.ts   hash private bundle -> approve USDC -> createBounty (broadcasts)
 tools/monitor.ts        get_job / list_jobs / job_events (ScoreRecorded, ValidityRecorded,
                         NewLeader, JobResolved, JobCreated)
-tools/grade.ts          run a submission through the real grader (score + validity + digests)
+tools/grade.ts          run a submission through the real scorer (score + validity metadata + digests)
 tools/reputation.ts     ERC-8004 reputation from BigQuery (counts / feedback / leaderboard)
 chain.ts                BountyEscrow address + ABI, viem public/wallet clients, decodeJob
 reputation.py           the BigQuery query reputation.ts shells to
@@ -43,7 +43,7 @@ The functions need secrets only when actually called:
 | `SEP_PRIVATE_KEY` | `createBounty` | Funds + signs the Sepolia tx. |
 | `SEPOLIA_RPC` (or `RPC`) | all on-chain reads | Resolved via `@honeycomb/chain/sepolia`; public fallback if unset. |
 | BigQuery auth | `queryReputation` | `analysis/.secrets/gcp-key.json` or `GOOGLE_APPLICATION_CREDENTIALS`; runs on `analysis/.venv` python. |
-| `INFERENCE_API_KEY_VAR` | `gradeSubmission` validity half | Without it the score still computes; the validity attestation throws (surfaced). |
+| `INFERENCE_API_KEY_VAR` | optional `gradeSubmission` AI validity | Only needed when `HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1`. Direct mode returns an explicit unattested validity marker. |
 
 The backend loads these from the macOS keychain at launch via
 `apps/honeycomb-api/run-with-secrets.sh`. See `apps/honeycomb-api/README.md` to
@@ -55,6 +55,13 @@ Both scorers (`scorer.py` directional, `lp_scorer.py` LP) import `demeter`, whic
 lives in the grader's own venv (`apps/grading-cre/grader/.venv`, py3.12 +
 `zelos-demeter`). `tools/grade.ts` prepends that venv's `bin` to `PATH` before
 invoking `grade.ts`. Override the location with `HONEYCOMB_GRADER_VENV`.
+
+Direct mode is the default: the grader returns a score plus `validityMode:
+"direct-unattested"` and does not call Chainlink Confidential AI or a TEE. To opt
+into the legacy AI validity check for a specific demo, set
+`HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1` and provide `INFERENCE_API_KEY_VAR`. To opt
+into enclave execution grading, set `HONEYCOMB_ENABLE_ENCLAVE_GRADING=1` and
+`GRADER_ENCLAVE_URL`.
 
 ## Typecheck
 

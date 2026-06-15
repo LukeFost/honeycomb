@@ -24,9 +24,9 @@ steps:
 images:
   - ${_IMAGE}
 options:
-  # The image rebuilds a python venv (zelos-demeter/pandas/numpy wheels), pulls the
-  # cre CLI, and runs two installs (pnpm workspace + grading-workflow bun). Give it
-  # headroom so the build does not crawl on the default pool.
+  # The image rebuilds the grader python venv (zelos-demeter/pandas/numpy wheels)
+  # and installs the pnpm workspace. Give it headroom so the build does not crawl
+  # on the default pool.
   machineType: E2_HIGHCPU_8
 # pip + bun + apt can be slow on a cold pool; default 10m is tight. Allow 30m.
 timeout: 1800s

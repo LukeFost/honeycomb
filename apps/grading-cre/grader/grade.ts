@@ -1,17 +1,19 @@
 #!/usr/bin/env bun
 // ============================================================================
-// Off-chain grader for a bounty submission. Produces the grading-callback the
-// grader POSTs to the CRE workflow's HTTP trigger.
+// Off-chain grader for a Honeycomb work submission. Produces a direct grading
+// result that callers can return as a user-owned work receipt.
 //
 // Two jobs, deliberately separated:
 //   • executionGrade() — REAL  run the submission against the PRIVATE series in an
 //                              isolated process (scorer.py / lp_scorer.py), real PnL.
-//   • attestValidity() — REAL  call the Chainlink Confidential AI Attester (TEE
-//                              LLM) to attest the code is valid / not hardcoded.
+//   • attestValidity() — DEFAULT direct mode returns an explicit non-attested
+//                              validity marker; opt in to the legacy Confidential
+//                              AI call with HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1.
 //
 // Usage:
-//   INFERENCE_API_KEY_VAR=... bun grader/grade.ts <submission-file> [bountyId] [winner]
-//   (prints the grading-callback JSON to stdout; logs to stderr)
+//   bun grader/grade.ts <submission-file> [bountyId] [winner]
+//   HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1 INFERENCE_API_KEY_VAR=... bun grader/grade.ts ...
+//   (prints the grading result JSON to stdout; logs to stderr)
 // ============================================================================
 
 import { createHash } from "node:crypto";
@@ -21,6 +23,7 @@ import { dirname, join } from "node:path";
 
 const BASE_URL = process.env.BASE_URL ?? "https://confidential-ai-dev-preview.cldev.cloud";
 const API_KEY = process.env.INFERENCE_API_KEY_VAR;
+const ENABLE_CONFIDENTIAL_AI = process.env.HONEYCOMB_ENABLE_CONFIDENTIAL_AI === "1";
 const sha256hex = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 
 const HERE = dirname(new URL(import.meta.url).pathname);
@@ -71,9 +74,24 @@ function executionGrade(submissionPath: string, code: string, bountyId: string):
 	return { score, attestationDigest };
 }
 
-// --- REAL AI validity attestation via the Chainlink Confidential AI Attester ---
+// --- Optional AI validity check ---------------------------------------------
+// Default direct mode intentionally has no Chainlink/Confidential-AI dependency.
+// It labels the execution score as un-attested instead of blocking the user's work
+// receipt on an external attestor. Set HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1 to run
+// the legacy AI validity service when a demo explicitly needs honest-vs-cheat.
 async function attestValidity(filename: string, code: string) {
-	if (!API_KEY) throw new Error("INFERENCE_API_KEY_VAR not set");
+	if (!ENABLE_CONFIDENTIAL_AI) {
+		const attestationDigest = sha256hex(`direct-validity|${filename}|${sha256hex(code)}`);
+		return {
+			valid: true,
+			reason: "Direct grading mode: no AI validity attestation was requested.",
+			attestationDigest,
+			inferenceId: null,
+			mode: "direct-unattested" as const,
+		};
+	}
+
+	if (!API_KEY) throw new Error("INFERENCE_API_KEY_VAR not set (required when HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1)");
 	const auth = { Authorization: `Bearer ${API_KEY}` };
 
 	const submit = await fetch(`${BASE_URL}/v1/inference`, {
@@ -108,6 +126,7 @@ async function attestValidity(filename: string, code: string) {
 		reason: verdict.reason ?? "",
 		attestationDigest,
 		inferenceId: id,
+		mode: "confidential-ai" as const,
 	};
 }
 
@@ -123,17 +142,15 @@ const code = readFileSync(path, "utf8");
 const filename = path.split("/").pop()!;
 
 const exec = executionGrade(path, code, String(jobId)); // REAL backtest, 0..10000
-const validity = await attestValidity(filename, code); // REAL TEE AI attestation
+const validity = await attestValidity(filename, code);
 
 console.error(
-	`[grader] exec(REAL) score=${exec.score}/10000  validity(REAL) valid=${validity.valid} reason="${validity.reason}" inferenceId=${validity.inferenceId}`,
+	`[grader] exec(REAL) score=${exec.score}/10000  validity(${validity.mode}) valid=${validity.valid} reason="${validity.reason}" inferenceId=${validity.inferenceId ?? "none"}`,
 );
-// Combined grading result: BOTH TEE outputs (execution score+digest AND AI
-// validity+digest) in one object, for humans + the simulation fixtures. The CRE
-// onCallback trigger consumes the SPLIT form — one `kind:"score"` payload (with
-// the enclave signature) and one `kind:"validity"` payload — see simulation/
-// score-callback.json + validity-callback.json. Splitting this object into those
-// two is the caller's job; this is the source both are derived from.
+// Combined grading result for humans + the API direct submit path. The execution
+// score/digest are real scorer outputs. Validity is explicit about its mode:
+// direct-unattested by default, confidential-ai only when the legacy external
+// attestor is intentionally enabled.
 console.log(
 	JSON.stringify(
 		{
@@ -142,8 +159,10 @@ console.log(
 			status: "completed",
 			score: exec.score, // 0..10000
 			valid: validity.valid,
-			scoreAttestation: exec.attestationDigest, // execution-enclave digest
-			validityAttestation: validity.attestationDigest, // AI attestor digest
+			scoreAttestation: exec.attestationDigest, // execution digest
+			validityAttestation: validity.attestationDigest,
+			validityMode: validity.mode,
+			validityReason: validity.reason,
 		},
 		null,
 		2,
