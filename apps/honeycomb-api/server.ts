@@ -19,8 +19,8 @@
 //   GET  /events          decoded ScoreRecorded/ValidityRecorded/NewLeader/JobResolved/JobCreated  [no secrets]
 //   GET  /reputation      ERC-8004 reputation (BigQuery)        [BigQuery auth]
 //   POST /bounties        open + fund a bounty (BROADCASTS)     [SEP_PRIVATE_KEY]
-//   POST /grade           run the real grader                   [demeter venv, INFERENCE key]
-//   POST /submit          solver: grade + record on-chain       [grade deps + CRE relay/CLI]
+//   POST /grade           run the real grader                   [demeter venv; optional AI validity]
+//   POST /submit          solver: direct grade + work receipt   [grade deps]
 //
 // Run:  bun apps/honeycomb-api/server.ts            (PORT defaults to 8787; read routes only)
 //       bash apps/honeycomb-api/run-with-secrets.sh (write+grade routes; keychain secrets)
@@ -296,9 +296,9 @@ async function route(req: Request): Promise<Response> {
 		return json(await gradeSubmission(b as Parameters<typeof gradeSubmission>[0]));
 	}
 
-	// Solver one-call front door: read the bounty -> grade -> record both gates
-	// on-chain (CRE) -> plain-English verdict. Needs the same secrets as /grade
-	// plus the CRE relay key + the `cre` CLI; submitWork throws loudly if absent.
+	// Solver one-call front door: read the bounty -> grade -> return a direct,
+	// user-owned work receipt. This no longer records score/validity on-chain and
+	// no longer needs a CRE relay, enclave signature, or `cre` CLI.
 	if (m === "POST" && pathname === "/submit") {
 		requireWriteAuth(req);
 		const b = await body(req);

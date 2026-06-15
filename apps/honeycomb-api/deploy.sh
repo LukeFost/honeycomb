@@ -4,35 +4,32 @@
 #
 # Two steps: Cloud Build builds + pushes the image (apps/honeycomb-api/Dockerfile,
 # repo-root context, BuildKit ON -- see cloudbuild.yaml), then Cloud Run deploys it
-# with the VPC connector attached so /grade can reach the internal-only grading
-# enclave, and with all secrets mounted from Secret Manager.
+# with all secrets mounted from Secret Manager. The VPC connector is still
+# attached so the optional enclave grading backend can be enabled without a new
+# deploy script, but direct grading is the default.
 #
 #   bash apps/honeycomb-api/deploy.sh
 #
-# NETWORK PATH (chosen 2026-06-14): Serverless VPC connector + internal IP.
+# OPTIONAL ENCLAVE NETWORK PATH (chosen 2026-06-14): Serverless VPC connector + internal IP.
 #   --vpc-connector honeycomb-conn (10.8.0.0/28) routes RFC-1918 egress onto the
-#   VPC; --vpc-egress private-ranges-only keeps PUBLIC egress (GitHub for cre, the
-#   Sepolia RPC) going straight out. The enclave VM grading-enclave-warm reaches
-#   :8000 via its internal IP, and firewall allow-grading-enclave-8000-internal
-#   opens :8000 to 10.8.0.0/28 only. So GRADER_ENCLAVE_URL=http://<internal-ip>:8000
-#   (currently 10.128.0.25 -- see the GRADER_ENCLAVE_URL default below).
+#   VPC; --vpc-egress private-ranges-only keeps PUBLIC egress (Sepolia RPC, etc.)
+#   going straight out. The enclave VM grading-enclave-warm reaches :8000 via its
+#   internal IP, and firewall allow-grading-enclave-8000-internal opens :8000 to
+#   10.8.0.0/28 only. Setting HONEYCOMB_ENABLE_ENCLAVE_GRADING=1 makes /grade
+#   use GRADER_ENCLAVE_URL=http://<internal-ip>:8000 (currently 10.128.0.25).
 #
 # SECRETS: mounted via --set-secrets (Secret Manager -> env). NONE are baked into
-#   the image. The runtime SA (bq-script@) holds secretAccessor on all five.
+#   the image. The runtime SA (bq-script@) holds secretAccessor on the mounted
+#   secrets below.
 #
-# KNOWN LIMITATION -- /submit broadcast leg: submitWork shells to the `cre` CLI,
-#   which authenticates via interactive `cre login` (browser OAuth+2FA) writing
-#   ~/.cre/cre.yaml. There is no such session in Cloud Run, and the CRE_API_KEY
-#   path gates on Early-Access deploy approval (returns "invalid token"). So in the
-#   deployed image /submit's `cre workflow simulate --broadcast` step FAILS LOUDLY
-#   (no false green -- correct per the error-handling contract). /bounties, /grade
-#   (incl. the enclave-signed score via the connector), /jobs, /events, /reputation
-#   all work. Run /submit's broadcast from a box with a live `cre login` session.
+# /submit is intentionally direct/off-chain now. It grades the submitted work and
+# returns a durable submission.sha256 receipt plus recordedOnChain=false; it does
+# not shell to CRE, need a CRE login/API key, or claim to mutate the escrow leader.
 #
 # PREREQUISITES (already satisfied on honeycomb-499305 as of 2026-06-14):
 #   - run.googleapis.com + cloudbuild + artifactregistry + vpcaccess enabled.
 #   - VPC connector honeycomb-conn READY (us-central1, 10.8.0.0/28).
-#   - 5 secrets created; runtime SA bq-script@ granted secretAccessor on each.
+#   - runtime SA bq-script@ granted secretAccessor on each mounted secret.
 #   - enclave VM grading-enclave-warm (internal IP 10.128.0.25), firewalled
 #     :8000 <- 10.8.0.0/28 by tag grading-enclave.
 # ===========================================================================
@@ -55,8 +52,7 @@ VPC_CONNECTOR="${VPC_CONNECTOR:-honeycomb-conn}"
 # keys on tag `grading-enclave` + the connector range, not the IP, so only this
 # literal needs to track the VM. :8000 is the warm daemon.
 GRADER_ENCLAVE_URL="${GRADER_ENCLAVE_URL:-http://10.128.0.25:8000}"
-# CRE relay settings file naming the deployed escrow/forwarder (mainnet-settings).
-HONEYCOMB_CRE_TARGET="${HONEYCOMB_CRE_TARGET:-mainnet-settings}"
+
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -79,9 +75,8 @@ gcloud builds submit --project="$PROJECT" \
 # 3. Deploy to Cloud Run with the connector + secrets.
 #    --set-secrets maps Secret Manager -> env (latest version). The server reads:
 #      SEP_PRIVATE_KEY        (write routes sign chain tx)
-#      INFERENCE_API_KEY_VAR  (maker/inference path)
+#      INFERENCE_API_KEY_VAR  (optional AI validity; only used when explicitly enabled)
 #      SEPOLIA_RPC            (chain RPC; sepolia.ts reads SEPOLIA_RPC env first)
-#      CRE_API_KEY            (present for completeness; see /submit limitation above)
 #      HONEYCOMB_API_TOKEN    (write-route guard; without it write routes 401)
 #      DATABASE_URL           (Neon; powers all 3 recording streams — telemetry,
 #                              grades, and the co-located chain subscriber)
@@ -110,8 +105,8 @@ gcloud run deploy "$SERVICE" \
   --timeout=300 \
   --vpc-connector="$VPC_CONNECTOR" \
   --vpc-egress=private-ranges-only \
-  --set-env-vars="HOST=0.0.0.0,GRADER_ENCLAVE_URL=${GRADER_ENCLAVE_URL},HONEYCOMB_CRE_TARGET=${HONEYCOMB_CRE_TARGET},HONEYCOMB_GRADER_VENV=/repo/apps/grading-cre/grader/.venv/bin,HONEYCOMB_PYTHON=/repo/apps/grading-cre/grader/.venv/bin/python" \
-  --set-secrets="SEP_PRIVATE_KEY=honeycomb-sep-private-key:latest,INFERENCE_API_KEY_VAR=honeycomb-inference-api-key:latest,SEPOLIA_RPC=honeycomb-sepolia-rpc:latest,CRE_API_KEY=honeycomb-cre-api-key:latest,HONEYCOMB_API_TOKEN=honeycomb-api-token:latest,DATABASE_URL=honeycomb-database-url:latest,SEPOLIA_WS=honeycomb-sepolia-ws:latest"
+  --set-env-vars="HOST=0.0.0.0,HONEYCOMB_ENABLE_ENCLAVE_GRADING=${HONEYCOMB_ENABLE_ENCLAVE_GRADING:-0},GRADER_ENCLAVE_URL=${GRADER_ENCLAVE_URL},HONEYCOMB_GRADER_VENV=/repo/apps/grading-cre/grader/.venv/bin,HONEYCOMB_PYTHON=/repo/apps/grading-cre/grader/.venv/bin/python" \
+  --set-secrets="SEP_PRIVATE_KEY=honeycomb-sep-private-key:latest,INFERENCE_API_KEY_VAR=honeycomb-inference-api-key:latest,SEPOLIA_RPC=honeycomb-sepolia-rpc:latest,HONEYCOMB_API_TOKEN=honeycomb-api-token:latest,DATABASE_URL=honeycomb-database-url:latest,SEPOLIA_WS=honeycomb-sepolia-ws:latest"
 
 echo "[deploy] done. URL:"
 gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" \

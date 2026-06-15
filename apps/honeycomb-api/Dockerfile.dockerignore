@@ -3,8 +3,8 @@
 # which is tuned for the web build and EXCLUDES the apps this image needs).
 #
 # This image legitimately needs apps/honeycomb-api, apps/honeycomb-mcp,
-# packages/chain, AND apps/grading-cre (the grader subprocess + cre relay). So we
-# do NOT exclude those here. We DO exclude secrets, the host-built venv/node_modules
+# packages/chain, AND apps/grading-cre (the local grader subprocess). So we do
+# NOT exclude those here. We DO exclude secrets, the host-built venv/node_modules
 # (rebuilt in-image), and the confidential price series (must never enter a
 # non-attested Cloud Run image).
 

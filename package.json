@@ -7,7 +7,8 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "start": "turbo run start"
+    "start": "turbo run start",
+    "test:direct-submit": "node scripts/check-direct-submit.mjs"
   },
   "devDependencies": {
     "turbo": "2.6.3"

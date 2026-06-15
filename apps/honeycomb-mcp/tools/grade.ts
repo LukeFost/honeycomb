@@ -1,29 +1,21 @@
 // ============================================================================
-// grade_submission: run a candidate submission through the REAL grader
-// (apps/grading-cre/grader/grade.ts) and return its score + validity callback.
+// grade_submission: run a candidate submission through the Honeycomb grader
+// (apps/grading-cre/grader/grade.ts) and return its score + receipt metadata.
 //
-// Two execution backends, selected by GRADER_ENCLAVE_URL:
+// Default execution is direct/local:
+//   • shell to grade.ts, which owns scorer selection (BOUNTY env), the trusted /
+//     untrusted process split, and direct validity metadata. It does not require
+//     Chainlink Confidential AI, a TEE, or an enclave signature by default.
 //
-//   • UNSET (Stage 1, local):  shell to grade.ts unchanged — it owns the scorer
-//     selection (BOUNTY env), the trusted/untrusted process split, the AI validity
-//     call, and a content-commitment digest (NOT a hardware attestation).
-//
-//   • SET (Stage 2, enclave):  POST the submission to the warm grading enclave on
-//     Confidential Space (apps/grading-cre/grader/enclave/enclave_grade_server.py),
-//     which runs the SAME scorer inside the TEE and returns a KMS-HSM-signed score
-//     digest — the exact (r,s,v) BountyEscrow._recordScore ecrecovers on-chain. The
-//     AI validity attestation (Chainlink) still comes from the local grade.ts, which
-//     does not run in this enclave. The enclave's signed score is authoritative and
-//     replaces the local content-commitment.
-//
-// Requires INFERENCE_API_KEY_VAR for the validity attestation. For lp bounties the
-// grading-cre .venv (python 3.12/3.14 + zelos-demeter) must be on PATH. The enclave
-// path additionally needs GRADER_ENCLAVE_URL (the warm CS VM's base URL, e.g.
-// http://VM_INTERNAL_IP:8000), mirroring how apps/web reaches the summon runner.
+// Optional backends, both explicit opt-ins:
+//   • HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1 makes grade.ts call the legacy AI
+//     validity service and requires INFERENCE_API_KEY_VAR.
+//   • HONEYCOMB_ENABLE_ENCLAVE_GRADING=1 + GRADER_ENCLAVE_URL re-grades execution
+//     in the warm Confidential Space enclave and returns its signed score bundle.
 // ============================================================================
 
-import { existsSync, readFileSync } from "node:fs";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 
 import { recordGrade } from "../db/snapshot.ts";
 
@@ -46,12 +38,29 @@ const GRADE_TS = join(GRADER_DIR, "grade.ts");
 // the subprocess argv resolve against process.cwd(), which is NOT the repo root in the
 // Cloud Run image (WORKDIR is apps/honeycomb-api). Anchor relative paths here so the
 // "repo-relative" contract holds no matter where the server process was launched.
-const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
-const repoPath = (p: string) => (isAbsolute(p) ? p : resolve(REPO_ROOT, p));
+const REPO_ROOT = realpathSync(join(import.meta.dir, "..", "..", ".."));
+const repoPath = (p: string) => {
+	const candidate = isAbsolute(p) ? p : resolve(REPO_ROOT, p);
+	if (!existsSync(candidate)) throw new Error(`submission file not found: ${p}`);
+	const realCandidate = realpathSync(candidate);
+	if (!isPathInside(REPO_ROOT, realCandidate)) {
+		throw new Error(`submissionPath escapes the Honeycomb repo: ${p}`);
+	}
+	return realCandidate;
+};
 
-// When set, execution grading runs in the warm Confidential Space enclave over HTTP
-// (POST /grade) instead of the local python3 subprocess. Validity still runs locally.
-const GRADER_ENCLAVE_URL = process.env.GRADER_ENCLAVE_URL?.replace(/\/+$/, "");
+function isPathInside(root: string, candidate: string): boolean {
+	const rel = relative(root, candidate);
+	return rel === "" || (!!rel && !rel.startsWith("..") && !isAbsolute(rel));
+}
+
+// When explicitly enabled, execution grading can run in the warm Confidential
+// Space enclave over HTTP (POST /grade) after the local scorer. Direct mode keeps
+// this off by default even if an old GRADER_ENCLAVE_URL is present in the runtime.
+const ENABLE_ENCLAVE_GRADING = process.env.HONEYCOMB_ENABLE_ENCLAVE_GRADING === "1";
+const GRADER_ENCLAVE_URL = ENABLE_ENCLAVE_GRADING
+	? process.env.GRADER_ENCLAVE_URL?.replace(/\/+$/, "")
+	: undefined;
 
 // grade.ts shells to a bare `python3` (resolved via PATH). Both scorers import
 // demeter, which lives in the grader's own venv (py3.12 + zelos-demeter), not the
@@ -63,7 +72,7 @@ const GRADER_VENV_BIN =
 export const gradeSubmissionInput = {
 	submissionPath: {
 		type: "string",
-		description: "Absolute path to the submission file (a .py for directional, a Strategy .py for lp).",
+		description: "Path to the submission file (a .py for directional, a Strategy .py for lp). Relative paths resolve from the repo root and must remain inside this repo.",
 	},
 	bounty: {
 		type: "string",
@@ -75,7 +84,7 @@ export const gradeSubmissionInput = {
 	encCid: {
 		type: "string",
 		description:
-			"Sealed-submission CID (gcs://...) registered on-chain by submit(). When set AND the enclave backend is active, the enclave fetches + opens it inside the TEE so the plaintext never leaves it; the local validity grade still reads submissionPath. Ignored on the local-only backend. Optional.",
+			"Optional sealed-submission CID for the explicit enclave grading path. Ignored in default direct mode.",
 	},
 } as const;
 
@@ -88,9 +97,9 @@ export async function gradeSubmission(args: {
 }) {
 	if (!args.submissionPath) throw new Error("submissionPath is required");
 
-	// Always run the local grader. Stage 1 (no enclave) -> this IS the result. Stage 2
-	// (enclave set) -> we still need it for the AI validity attestation, which the enclave
-	// does not produce; only its execution score+digest is replaced by the signed bundle.
+	// Always run the local grader. Direct mode -> this IS the result. Optional
+	// enclave mode -> re-grade execution in the enclave afterwards and merge the
+	// signed score bundle, leaving the direct validity metadata from grade.ts.
 	const callback = await gradeLocal(args);
 
 	if (!GRADER_ENCLAVE_URL) {
@@ -99,11 +108,11 @@ export async function gradeSubmission(args: {
 	}
 
 	// Stage 2: re-grade execution in the warm TEE for a KMS-signed, on-chain-recomputable
-	// score digest. Two ways to hand the submission to the enclave:
+	// score digest. This is a legacy/explicit opt-in path; direct submit does not require
+	// it. Two ways to hand the submission to the enclave:
 	//   • encCid set  -> SEALED path. Send only the on-chain encCid; the enclave fetches the
 	//     sealed ciphertext from GCS and opens it with its own secret INSIDE the TEE, so the
-	//     plaintext is never read here and never crosses the wire. This is the private path
-	//     the submit flow uses (submitWork seals -> encCid -> grade).
+	//     plaintext is never read here and never crosses the wire.
 	//   • encCid unset -> INLINE path. Read the source and POST it as `code` (the standalone
 	//     /grade route, which grades a path with no prior seal).
 	// The enclave requires exactly one of code/encCid, so we send exactly one.

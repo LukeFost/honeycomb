@@ -154,10 +154,10 @@ export async function recordGrade(callback: Record<string, any>, bounty?: string
 }
 
 // --- gcs_objects: index one off-chain content blob (spec / sealed submission) --
-// Mirror of a GCS put into the DB content-layer index. Called from the put paths
-// (createBounty spec upload, submitWork seal+upload) right after the bytes land in
-// the bucket. Parses the gcs://<bucket>/<sha256> URI for its key, so the caller only
-// has to hand over the URI it already got back from putContent/putText.
+// Mirror of a GCS put into the DB content-layer index. Called from content put
+// paths such as createBounty spec upload and any legacy sealed-submission flow
+// after bytes land in the bucket. The active direct `submit_work` path does not
+// seal/upload submissions or call this helper.
 //
 // Fire-and-forget by construction: this is telemetry, not the bounty itself. A
 // missing DATABASE_URL or a failed write must NEVER fail a create or a submit, so

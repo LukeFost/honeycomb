@@ -60,14 +60,15 @@ signal your token works).
 | POST | `/bounties/draft` | Gasless funding step 1: compute the commitment, return an x402 402-challenge to sign. **No USDC spent.** | same as `/bounties` | `SEP_PRIVATE_KEY` |
 | POST | `/bounties/finalize` | Gasless funding step 2: settle the signed EIP-3009 auth (relayer pays gas), then broadcast `createBounty`. | `draftId`, `signature`, `authorization` (object) | `SEP_PRIVATE_KEY`, facilitator |
 | POST | `/bounties/:id/resolve-early` | Maker closes a contest early (`resolveEarly`); escrow enforces caller = client. | none | `SEP_PRIVATE_KEY` |
-| POST | `/grade` | Run a submission through the **real grader** → score + validity + attestation digests. | `submissionPath` (repo-relative) | demeter venv, `INFERENCE_API_KEY_VAR` |
-| POST | `/submit` | Solver one-call front door: read bounty → grade → record both gates on-chain (CRE) → plain-English verdict. | `jobId`, `submissionPath` (repo-relative) | grade deps + CRE relay/CLI |
+| POST | `/grade` | Run a submission through the **real scorer** → score + validity metadata + receipt digests. | `submissionPath` (repo-relative) | demeter venv; optional AI validity |
+| POST | `/submit` | Solver one-call direct front door: read bounty → grade → return a direct work receipt (`submission.sha256`). Does **not** record on-chain. | `jobId`, `submissionPath` (repo-relative) | grade deps |
 | POST | `/agents/register` | Mint an ERC-8004 agent identity (real on-chain tx; pre-checks signer gas). | optional `tokenURI` | `SEP_PRIVATE_KEY` |
 
 Errors surface faithfully as JSON `{error}` with a 4xx/5xx status — no silent
-fallback. `submissionPath` / `bountyDir` must be **repo-relative**: an absolute
-path (leading `/`) is rejected `400` over HTTP — the absolute-path escape is
-local-operator-only.
+fallback. `submissionPath` / `bountyDir` must be **repo-relative** over HTTP:
+absolute paths are rejected `400`, and the underlying grader/submit path resolver
+also rejects `../` traversal or symlink escapes outside the repo before reading or
+grading.
 
 `jobId` is a string everywhere (ERC-8183 ids can exceed 2^53). The query/body
 shapes mirror the plugin's tool params exactly; see [`GET /skill`](#run) for the
@@ -120,12 +121,15 @@ only by the routes that use them:
 | `SEP_PRIVATE_KEY` | `POST /bounties` | Funds + signs the Sepolia tx. Read routes work without it. |
 | `SEPOLIA_RPC` (or `RPC`) | all on-chain routes | Resolved via `@honeycomb/chain/sepolia` (keychain `honeycomb_sepolia_rpc`, else a public fallback). |
 | BigQuery auth | `GET /reputation` | `analysis/.secrets/gcp-key.json`, runs on `analysis/.venv` python. |
-| `INFERENCE_API_KEY_VAR` | `POST /grade` validity half | Without it the score still computes; the validity attestation throws (surfaced). |
+| `INFERENCE_API_KEY_VAR` | optional `POST /grade` AI validity | Only needed when `HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1`. Direct mode returns `validityMode: "direct-unattested"` and does not call the external attestor. |
 
-`run-with-secrets.sh` reads `SEP_PRIVATE_KEY` + `INFERENCE_API_KEY_VAR` from the
-keychain at launch (gitignored, machine-specific). On another machine, stock the
-keychain with those service names or set the env vars another way and run
-`bun server.ts` directly.
+`run-with-secrets.sh` reads `SEP_PRIVATE_KEY` and optional `INFERENCE_API_KEY_VAR`
+from the keychain at launch (gitignored, machine-specific). On another machine,
+stock the keychain with those service names or set the env vars another way and
+run `bun server.ts` directly. Set `HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1` only when
+you intentionally want the legacy AI validity check; set
+`HONEYCOMB_ENABLE_ENCLAVE_GRADING=1` plus `GRADER_ENCLAVE_URL` only when you want
+the optional enclave execution path.
 
 ## Addresses (Sepolia)
 

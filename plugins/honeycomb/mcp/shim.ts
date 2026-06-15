@@ -324,7 +324,7 @@ server.registerTool(
 	{
 		title: "Grade a submission (real scorer)",
 		description:
-			"Run a candidate submission through the REAL Honeycomb grader and return its grading callback: execution score (0..10000), validity verdict, and both attestation digests. directional -> scorer.py over a price series; lp -> lp_scorer.py (Demeter) over a pool CSV. Needs INFERENCE_API_KEY_VAR; lp needs the grading-cre demeter venv on PATH.",
+			"Run a candidate submission through the REAL Honeycomb scorer and return its grading result: execution score (0..10000), validity status, and receipt digests. By default validity is direct/unattested (no Chainlink/Confidential-AI dependency); set HONEYCOMB_ENABLE_CONFIDENTIAL_AI=1 on the API host to opt into the legacy AI check. directional -> scorer.py; lp -> lp_scorer.py (Demeter).",
 		inputSchema: {
 			submissionPath: z.string().describe("Repo-relative path to the submission file (the hosted API rejects absolute paths)."),
 			bounty: z.enum(["directional", "lp"]).optional().describe("Scorer to use. Default directional."),
@@ -345,13 +345,13 @@ server.registerTool(
 server.registerTool(
 	"submit_work",
 	{
-		title: "Submit to a bounty (solver)",
+		title: "Submit work directly (solver)",
 		description:
-			"The solver's one-call front door: hand it a bounty id and your strategy file and it does the whole job — checks the bounty is still open, runs your file through the REAL grader, records BOTH gates (execution score + AI validity) on-chain, then tells you in plain English how you did and whether you're now the leader. BROADCASTS real transactions. Needs an enclave-signed grade (set GRADER_ENCLAVE_URL) and the CRE relay; it fails loudly if it can't actually record the grade rather than reporting a false win.",
+			"The solver's one-call direct front door: hand it a bounty/task id and your strategy/work file. It checks the task is still open, runs the file through the REAL grader, returns a direct work receipt (submission.sha256), and tells you whether the result would beat the current on-chain leader. It does NOT record score/validity on-chain and does NOT need Chainlink CRE, an enclave signature, a relayer key, or the cre CLI.",
 		inputSchema: {
 			jobId: z.string().describe("The bounty id you're submitting to (from list_jobs / get_job)."),
 			submissionPath: z.string().describe("Repo-relative path to your submission file (a .py strategy)."),
-			agentId: z.string().optional().describe("Your ERC-8004 agentId — the identity the grade is recorded under. Default 22."),
+			agentId: z.string().optional().describe("Your ERC-8004 agentId — used for attribution in the direct receipt. Default 22."),
 			bounty: z.enum(["directional", "lp"]).optional().describe("Which scorer the bounty uses. Default directional."),
 		},
 	},

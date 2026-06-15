@@ -151,13 +151,13 @@ export const ESCROW_ABI = [
 		outputs: [JOB_TUPLE],
 	},
 	{
-		// Agent: register a submission CID (the sealed-box ciphertext, sealed to the
-		// job's enclaveEncPub). The escrow stores it on submissionOf[jobId][agentId];
-		// the grading enclave re-fetches this CID at delivery to re-seal the winner.
+		// Agent: legacy on-chain registration of a sealed submission CID. The active
+		// `submit_work` front door now returns a direct/off-chain work receipt and does
+		// not call this function; keep the ABI for chain monitoring/legacy flows.
 		// ACCESS: the contract requires msg.sender == identityRegistry.getAgentWallet(
-		// agentId), so this MUST be broadcast by the agent's OWN registered wallet —
-		// submitWork signs it with SUBMIT_PRIVATE_KEY (see submitWork.ts). Overloads
-		// the ERC-8183 submit(uint256,bytes32,bytes); distinct 3-arg selector.
+		// agentId), so any future on-chain submit path must be broadcast by the agent's
+		// own registered wallet. Overloads the ERC-8183 submit(uint256,bytes32,bytes);
+		// distinct 3-arg selector.
 		type: "function",
 		name: "submit",
 		stateMutability: "nonpayable",
@@ -276,9 +276,10 @@ export const ESCROW_ABI = [
 ] as const;
 
 // ERC-8004 Identity Registry. The registry is an ERC-721 — an agent is an NFT,
-// minted to msg.sender by register(). submit() ecrecovers msg.sender against
-// getAgentWallet(agentId), so submitWork reads getAgentWallet to fail loud on a
-// registry mismatch BEFORE broadcasting a sure-to-revert submit.
+// minted to msg.sender by register(). The legacy escrow submit() ecrecovers
+// msg.sender against getAgentWallet(agentId); the current `submit_work` path does
+// not broadcast that transaction, but any future on-chain submit path must keep
+// that identity/wallet invariant.
 //
 // register surface (verified on-chain 2026-06-14 against the live mainnet registry
 // 0x8004a169fb4a3325136eb29fa0ceb6d2e539a432 via its UUPS impl 0x7274e874): three
