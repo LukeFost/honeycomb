@@ -1,7 +1,39 @@
 # Direct submit testing plan
 
 This PR changes Honeycomb submission from a Chainlink/CRE-mediated path to a direct,
-off-chain work receipt. The tests should prove two things:
+off-chain work receipt.
+
+## Definition of working
+
+For this PR, "working" does **not** mean "the escrow leaderboard updates." That is
+explicitly out of scope after removing CRE/on-chain submit coupling.
+
+The direct submit path is working when all of these are true:
+
+1. A tokened solver can submit a repo-contained work file through `/submit` or the
+   MCP `submit_work` tool for a live, unexpired bounty.
+2. The backend grades that exact file through the local Honeycomb scorer and returns
+   score + validity metadata without requiring Chainlink CRE, the `cre` CLI, an
+   enclave signature, or a relayer key.
+3. The returned receipt is honest and self-consistent:
+   - `recordedOnChain === false`
+   - `recordingMode === "direct"`
+   - `isLeader === false`
+   - `wouldBeLeader` is computed from score/validity/current best score
+   - legacy tx/CID fields are present and `null`
+   - `submission.sha256` hashes the exact bytes that were graded
+   - no server absolute path leaks in the receipt
+4. Unsafe inputs fail loudly before reading/grading:
+   - missing/invalid write token -> `401`
+   - absolute HTTP submission paths -> `400`
+   - `../` traversal or symlink escape outside the repo -> error
+   - settled/expired bounty -> error
+5. Legacy paths remain opt-in only:
+   - `GRADER_ENCLAVE_URL` alone does not enable enclave grading
+   - `INFERENCE_API_KEY_VAR` alone does not enable Confidential AI validity
+   - no CRE env var/secret/CLI is required for direct submit
+
+The tests should prove two things:
 
 1. active runtime code cannot silently fall back to CRE/relay/on-chain recording; and
 2. direct submit returns an honest receipt contract that callers can reason about.

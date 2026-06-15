@@ -65,9 +65,10 @@ signal your token works).
 | POST | `/agents/register` | Mint an ERC-8004 agent identity (real on-chain tx; pre-checks signer gas). | optional `tokenURI` | `SEP_PRIVATE_KEY` |
 
 Errors surface faithfully as JSON `{error}` with a 4xx/5xx status — no silent
-fallback. `submissionPath` / `bountyDir` must be **repo-relative**: an absolute
-path (leading `/`) is rejected `400` over HTTP — the absolute-path escape is
-local-operator-only.
+fallback. `submissionPath` / `bountyDir` must be **repo-relative** over HTTP:
+absolute paths are rejected `400`, and the underlying grader/submit path resolver
+also rejects `../` traversal or symlink escapes outside the repo before reading or
+grading.
 
 `jobId` is a string everywhere (ERC-8183 ids can exceed 2^53). The query/body
 shapes mirror the plugin's tool params exactly; see [`GET /skill`](#run) for the
