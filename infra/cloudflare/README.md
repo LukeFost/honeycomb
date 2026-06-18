@@ -5,7 +5,7 @@ byte-identical) so they are recoverable; routes still live in the Cloudflare das
 
 ```
 honeycompute.com        --(honeycomb-apex-redirect)-->  301  www.honeycompute.com
-www.honeycompute.com    --(honeycomb-proxy)---------->  honeycomb-web-tykk6w3mfa-uc.a.run.app
+www.honeycompute.com    --(honeycomb-proxy)---------->  honeycomb-web-unovcqov3a-uc.a.run.app
 ```
 
 ## Why these never need editing on deploy

@@ -7,7 +7,7 @@
 // ships a new revision. Edit only if the web service is renamed or moved.
 export default {
   async fetch(request) {
-    const BACKEND = "honeycomb-web-tykk6w3mfa-uc.a.run.app";
+    const BACKEND = "honeycomb-web-unovcqov3a-uc.a.run.app";
     const url = new URL(request.url);
     url.hostname = BACKEND;
     url.protocol = "https:";
